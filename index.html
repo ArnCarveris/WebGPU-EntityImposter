@@ -1,0 +1,3436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entity Imposter</title>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #030507;
+            --panel: rgba(6, 12, 16, 0.8);
+            --line: rgba(110, 220, 255, 0.28);
+            --accent: #6edcff;
+            --ok: #62f08a;
+            --warn: #ffc94a;
+            --danger: #ff4a3d;
+            --text: #d6e6ee;
+            --muted: #7d95a3;
+        }
+        * { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            height: 100%;
+            overflow: hidden;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Rajdhani', sans-serif;
+            user-select: none;
+        }
+        canvas#view { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: grab; }
+        canvas#view:active { cursor: grabbing; }
+        .panel {
+            position: fixed;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            padding: 8px 10px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 12px;
+            line-height: 1.35;
+            pointer-events: none;
+        }
+        .hidden-ui .panel:not(#toast) { display: none; }
+        #hud { top: 12px; left: 12px; white-space: pre; max-width: calc(100vw - 300px); overflow: hidden; }
+        .t { color: var(--accent); letter-spacing: 0.12em; }
+        .on { color: var(--ok); }
+        .off, .muted { color: var(--muted); }
+        .w { color: var(--warn); }
+        .d { color: var(--danger); }
+        #help { bottom: 12px; left: 12px; white-space: pre; color: var(--muted); }
+        #help b { color: var(--text); font-weight: normal; }
+        #toast { top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--warn); font-size: 14px; display: none; text-align: center; max-width: 80vw; white-space: pre-wrap; z-index: 20; }
+        #controls { top: 12px; right: 12px; width: 270px; pointer-events: auto; max-height: calc(100vh - 24px); overflow: auto; }
+        #controls .t { margin: 8px 0 4px; }
+        #controls .t:first-child { margin-top: 0; }
+        .row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+        .row > span:first-child { width: 64px; flex: none; color: var(--muted); }
+        .row b { width: 44px; text-align: right; font-weight: normal; color: var(--text); }
+        .row.chk { cursor: pointer; }
+        .seg { display: flex; flex: 1; border: 1px solid var(--line); }
+        .seg button, button.act, select {
+            background: transparent; color: var(--text); border: 0; font-family: 'Share Tech Mono', monospace; font-size: 11px;
+            padding: 3px 4px; cursor: pointer; text-transform: uppercase;
+        }
+        .seg button { flex: 1; }
+        .seg button + button { border-left: 1px solid var(--line); }
+        .seg button.on { background: var(--accent); color: var(--bg); }
+        button.act { border: 1px solid var(--line); padding: 4px 8px; flex: 1; }
+        button.act:hover, .seg button:hover { color: var(--accent); }
+        button.act:disabled { color: var(--muted); cursor: wait; }
+        select { border: 1px solid var(--line); background: #0a141a; flex: 1; min-width: 0; text-transform: none; }
+        input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+        input[type=checkbox] { accent-color: var(--accent); margin: 0 4px 0 0; }
+        #fallback { display: none; position: fixed; inset: 0; z-index: 50; align-items: center; justify-content: center; background: var(--bg); padding: 16px; }
+        #fallback.show { display: flex; }
+        .card { max-width: 520px; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--danger); padding: 14px 16px; }
+        .tag { font-family: 'Share Tech Mono', monospace; font-size: 11px; letter-spacing: 0.12em; color: var(--danger); }
+        h1 { margin: 4px 0 2px; font-size: 24px; letter-spacing: 0.04em; text-transform: uppercase; }
+        .desc { margin: 0 0 12px; font-size: 14px; color: var(--muted); }
+        #fallback pre { white-space: pre-wrap; font-family: 'Share Tech Mono', monospace; font-size: 12px; color: var(--danger); background: rgba(0,0,0,0.4); padding: 10px; margin: 10px 0 0; max-height: 40vh; overflow: auto; }
+        #dropzone { display: none; position: fixed; inset: 12px; z-index: 30; border: 2px dashed var(--accent); background: rgba(3, 5, 7, 0.6); align-items: center; justify-content: center; font-family: 'Share Tech Mono', monospace; color: var(--accent); font-size: 16px; pointer-events: none; }
+        #dropzone.show { display: flex; }
+        @media (max-width: 700px) {
+            #hud { max-width: calc(100vw - 24px); font-size: 10px; }
+            #controls { top: auto; bottom: 12px; width: calc(100vw - 24px); max-height: 40vh; }
+            #help { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="view"></canvas>
+    <div id="hud" class="panel"></div>
+    <div id="controls" class="panel"></div>
+    <div id="help" class="panel"></div>
+    <div id="toast" class="panel"></div>
+    <div id="dropzone">Drop a .glb / .gltf (+ .bin, textures) / .obj (+ .mtl, textures) or a scenario .json</div>
+    <input id="file" type="file" multiple accept=".glb,.gltf,.bin,.obj,.mtl,.json,.png,.jpg,.jpeg,.webp" hidden>
+    <div id="fallback">
+        <div class="card">
+            <div class="tag">SYSTEM FAULT</div>
+            <h1>WebGPU unavailable</h1>
+            <p class="desc">This demo needs WebGPU (Chrome/Edge 113+, or Brave with WebGPU enabled in brave://flags).</p>
+            <pre id="error-message">navigator.gpu is undefined</pre>
+        </div>
+    </div>
+
+<!--
+    The scenario: the whole demo as data (plain JSON, the same format "Load" / drop and "Export" use).
+    materials: procedural textures ({ pattern, colors, uvScale, alphaCutoff, doubleSided, wrap, ... })
+    models:    lists of parts ({ shape, ...shape params, pos, rot, scale, mat, array }); shape "model" nests
+               another model, so a whole scene can be baked into one imposter. `imposter` sets the bake
+               (grid frames per side, res per frame, mode hemi|full) or false for no imposter.
+    entities:  { type, id, ... } where type is a class in ENTITY_TYPES: terrain, prop, compare, scatter
+    drop:      what happens with a dropped 3D model (fit size, bake settings, entities it replaces, a field of it)
+    See README.md for every key.
+-->
+<script id="scenario" type="application/json">
+{
+    "name": "Imposter Valley",
+    "camera": { "pos": [0, 2.6, 24], "yaw": 0, "pitch": -3, "fov": 60, "speed": 14 },
+    "environment": "noon",
+    "lighting": {
+        "noon": {
+            "sun": { "azimuth": 36, "elevation": 42, "color": "#fff1dc", "intensity": 2.9 },
+            "sky": { "top": "#3d6fb6", "horizon": "#bfd3e4" },
+            "ambient": { "sky": "#a8c4e6", "ground": "#6a604c", "strength": 0.55 },
+            "fog": { "color": "#bccfde", "density": 0.0006 },
+            "exposure": 1.0, "emission": 0.05
+        },
+        "golden hour": {
+            "sun": { "azimuth": 250, "elevation": 9, "color": "#ffb070", "intensity": 2.5 },
+            "sky": { "top": "#44609a", "horizon": "#f0b27a" },
+            "ambient": { "sky": "#8a95c0", "ground": "#5a4a3a", "strength": 0.45 },
+            "fog": { "color": "#d9a987", "density": 0.0005 },
+            "exposure": 1.1, "emission": 0.4
+        },
+        "overcast": {
+            "sun": { "azimuth": 60, "elevation": 70, "color": "#dfe6ee", "intensity": 0.45 },
+            "sky": { "top": "#8e9aa6", "horizon": "#c5ccd2" },
+            "ambient": { "sky": "#c9d2dc", "ground": "#707060", "strength": 1.3 },
+            "fog": { "color": "#b8c0c6", "density": 0.0012 },
+            "exposure": 1.1, "emission": 0.1
+        },
+        "night": {
+            "sun": { "azimuth": 200, "elevation": 35, "color": "#9fb4ff", "intensity": 0.22 },
+            "sky": { "top": "#050a18", "horizon": "#1a2440" },
+            "ambient": { "sky": "#3a4e7a", "ground": "#1c1c20", "strength": 0.3 },
+            "fog": { "color": "#141c2e", "density": 0.0011 },
+            "exposure": 1.7, "emission": 1.0
+        }
+    },
+    "lod": { "mode": "auto", "distance": 40, "fade": 0.25, "far": 2400 },
+    "shadows": { "enabled": true, "distance": 1200, "resolution": 2048, "lambda": 0.85 },
+    "imposter": { "grid": 12, "res": 128, "mode": "hemi", "ao": 1, "blend": true, "parallax": true, "depthOffset": true },
+
+    "materials": {
+        "grass":     { "pattern": "grass",   "colors": ["#56702f", "#6c8a3b", "#445c26", "#7d9444"], "uvScale": 0.25, "spec": 0.05, "gloss": 0.2 },
+        "ground":    { "pattern": "grass",   "colors": ["#cfcfcf", "#e4e4e4", "#b2b2b2", "#d9d9d9"], "uvScale": 0.25, "spec": 0.06, "gloss": 0.25, "seed": 5 },
+        "bark":      { "pattern": "bark",    "colors": ["#5c4633", "#3a2b1f", "#77604a"], "spec": 0.05, "gloss": 0.2 },
+        "pineBark":  { "pattern": "bark",    "colors": ["#6e4c37", "#43301f", "#8a6a50"], "seed": 2, "spec": 0.05, "gloss": 0.2 },
+        "birchBark": { "pattern": "birch",   "colors": ["#e4e0d6", "#2a2622", "#b8b2a6"], "spec": 0.1, "gloss": 0.35 },
+        "needles":   { "pattern": "needles", "colors": ["#23402a", "#2f5534", "#1a3120", "#3f6a3c"], "wrap": 0.3, "spec": 0.1, "gloss": 0.3 },
+        "leaves":    { "pattern": "leaves",  "colors": ["#4e7d2c", "#679a36", "#3b6423", "#80a844"], "alphaCutoff": 0.5, "doubleSided": true, "backfaceFlip": false, "wrap": 0.6, "spec": 0.2, "gloss": 0.4 },
+        "autumn":    { "pattern": "leaves",  "colors": ["#d0772a", "#e0a838", "#b0482a", "#c99a2e"], "alphaCutoff": 0.5, "doubleSided": true, "backfaceFlip": false, "wrap": 0.6, "seed": 11, "spec": 0.2, "gloss": 0.4 },
+        "rock":      { "pattern": "rock",    "colors": ["#77736c", "#5a5751", "#8c877e"], "uvScale": 0.7, "spec": 0.12, "gloss": 0.3 },
+        "stone":     { "pattern": "rock",    "colors": ["#a19b90", "#857f75", "#b5afa4"], "uvScale": 0.8, "seed": 3, "spec": 0.2, "gloss": 0.45 },
+        "plaster":   { "pattern": "plaster", "colors": ["#ddd3bf", "#bfb39b"], "uvScale": 0.5, "spec": 0.05, "gloss": 0.2 },
+        "brick":     { "pattern": "bricks",  "colors": ["#94503a", "#7a3e2d", "#cfc6b4"], "uvScale": 0.8, "spec": 0.08, "gloss": 0.25 },
+        "roof":      { "pattern": "tiles",   "colors": ["#8a3f2c", "#6d3022", "#a4533a"], "uvScale": 0.6, "spec": 0.25, "gloss": 0.5 },
+        "wood":      { "pattern": "planks",  "colors": ["#7e5c3d", "#6a4b31", "#8e6b48"], "uvScale": 0.8, "spec": 0.1, "gloss": 0.35 },
+        "window":    { "pattern": "window",  "colors": ["#34495a", "#e8e2d4"], "uvScale": 0.83, "spec": 0.9, "gloss": 0.85,
+                       "emissive": { "color": "#ffc46b", "strength": 2.5 } },
+        "lamp":      { "pattern": "flat",    "colors": ["#fff3d0"], "emissive": { "color": "#ffd28a", "strength": 8 } },
+        "bronze":    { "pattern": "metal",   "colors": ["#b3843e", "#7d5a28", "#d4a95e"], "uvScale": 1.2, "spec": 0.9, "gloss": 0.65 }
+    },
+
+    "models": {
+        "pine": {
+            "imposter": { "grid": 10, "res": 128 },
+            "parts": [
+                { "shape": "cylinder", "r0": 0.32, "r1": 0.06, "h": 11.5, "seg": 8, "mat": "pineBark" },
+                { "shape": "cone", "r": 3.1, "h": 3.4, "seg": 16, "jag": 0.28, "pos": [0, 1.5, 0], "mat": "needles",
+                  "array": { "count": 6, "pos": [0, 1.9, 0], "rot": [0, 17, 0], "scale": 0.82 } }
+            ]
+        },
+        "oak": {
+            "imposter": { "grid": 12, "res": 192 },
+            "parts": [
+                { "shape": "cylinder", "r0": 0.5, "r1": 0.32, "h": 3.4, "seg": 10, "mat": "bark" },
+                { "shape": "cylinder", "r0": 0.3, "r1": 0.12, "h": 3.4, "seg": 8, "pos": [0, 3.2, 0], "mat": "bark" },
+                { "shape": "cylinder", "r0": 0.26, "r1": 0.09, "h": 3.6, "seg": 7, "pos": [0, 2.8, 0], "rot": [0, 0, 40], "mat": "bark",
+                  "array": { "count": 5, "rot": [0, 72, 0] } },
+                { "shape": "foliage", "radius": [2.1, 1.7, 2.1], "count": 120, "card": 1.25, "pos": [-2.4, 5.6, 0], "mat": "leaves", "seed": 3,
+                  "array": { "count": 5, "rot": [0, 72, 0] } },
+                { "shape": "foliage", "radius": [2.7, 2.1, 2.7], "count": 160, "card": 1.35, "pos": [0, 7.2, 0], "mat": "leaves", "seed": 9 }
+            ]
+        },
+        "birch": {
+            "imposter": { "grid": 12, "res": 128 },
+            "parts": [
+                { "shape": "cylinder", "r0": 0.2, "r1": 0.07, "h": 10, "seg": 8, "mat": "birchBark" },
+                { "shape": "cylinder", "r0": 0.09, "r1": 0.03, "h": 2.4, "seg": 5, "pos": [0, 4.2, 0], "rot": [0, 0, 48], "mat": "birchBark",
+                  "array": { "count": 4, "pos": [0, 1.3, 0], "rot": [0, 137, 0], "scale": 0.9 } },
+                { "shape": "foliage", "radius": [1.7, 3.4, 1.7], "count": 190, "card": 1.0, "pos": [0, 7.4, 0], "mat": "autumn", "seed": 5 }
+            ]
+        },
+        "rock": {
+            "lodBias": 2,
+            "imposter": { "grid": 8, "res": 128 },
+            "parts": [
+                { "shape": "sphere", "r": 1, "subdiv": 3, "noise": 0.32, "freq": 1.7, "seed": 4, "pos": [0, 0.25, 0], "scale": [1.5, 0.85, 1.15], "mat": "rock" }
+            ]
+        },
+        "pedestal": {
+            "imposter": { "grid": 8, "res": 128 },
+            "parts": [
+                { "shape": "lathe", "seg": 32, "mat": "stone",
+                  "profile": [[0, 0], [1.6, 0], [1.6, 0.35], [1.25, 0.35], [1.25, 0.5], [0.85, 0.62], [0.7, 1.5], [1.0, 1.62], [1.0, 1.85], [0, 1.85]] }
+            ]
+        },
+        "knot": {
+            "imposter": { "grid": 12, "res": 192, "mode": "full" },
+            "parts": [
+                { "shape": "knot", "p": 2, "q": 3, "R": 1.3, "tube": 0.42, "seg": 240, "rad": 20, "mat": "bronze" }
+            ]
+        },
+        "cottage": {
+            "imposter": false,
+            "parts": [
+                { "shape": "box", "size": [8.2, 0.5, 6.2], "pos": [0, 0.25, 0], "mat": "stone" },
+                { "shape": "box", "size": [8, 3.6, 6], "pos": [0, 2.3, 0], "mat": "plaster" },
+                { "shape": "roof", "size": [9, 2.8, 7.4], "pos": [0, 4.1, 0], "mat": "roof" },
+                { "shape": "box", "size": [0.9, 2.6, 0.9], "pos": [2.3, 5.5, -1.3], "mat": "brick" },
+                { "shape": "box", "size": [1.3, 2.3, 0.14], "pos": [0, 1.65, 3.02], "mat": "wood" },
+                { "shape": "box", "size": [1.2, 1.2, 0.12], "pos": [-2.4, 2.6, 3.02], "mat": "window", "array": { "count": 2, "pos": [4.8, 0, 0] } },
+                { "shape": "box", "size": [1.2, 1.2, 0.12], "pos": [-2.4, 2.6, -3.02], "mat": "window", "array": { "count": 2, "pos": [4.8, 0, 0] } },
+                { "shape": "box", "size": [0.12, 1.2, 1.2], "pos": [4.02, 2.6, 0], "mat": "window", "array": { "count": 2, "pos": [-8.04, 0, 0] } }
+            ]
+        },
+        "homestead": {
+            "imposter": { "grid": 12, "res": 192 },
+            "parts": [
+                { "shape": "model", "model": "cottage" },
+                { "shape": "model", "model": "oak", "pos": [-8.5, 0, -4], "scale": 0.8 },
+                { "shape": "model", "model": "birch", "pos": [7.5, 0, -5.5], "rot": [0, 40, 0] },
+                { "shape": "box", "size": [3, 2.2, 2.6], "pos": [8, 1.1, 3.5], "mat": "wood" },
+                { "shape": "roof", "size": [3.4, 1.0, 3.0], "pos": [8, 2.2, 3.5], "rot": [0, 90, 0], "mat": "roof" },
+                { "shape": "cylinder", "r": 0.08, "h": 1.1, "seg": 5, "pos": [-10, 0, 8], "mat": "wood", "array": { "count": 14, "pos": [1.5, 0, 0] } },
+                { "shape": "box", "size": [19.5, 0.1, 0.06], "pos": [-0.25, 0.55, 8], "mat": "wood", "array": { "count": 2, "pos": [0, 0.4, 0] } },
+                { "shape": "model", "model": "rock", "pos": [-4, 0, 6], "scale": 0.6 },
+                { "shape": "cylinder", "r": 0.07, "h": 2.4, "seg": 6, "pos": [2, 0, 5.2], "mat": "wood" },
+                { "shape": "box", "size": [0.32, 0.4, 0.32], "pos": [2, 2.6, 5.2], "mat": "lamp" },
+                { "shape": "box", "size": [0.42, 0.06, 0.42], "pos": [2, 2.83, 5.2], "mat": "roof" }
+            ]
+        }
+    },
+
+    "entities": [
+        { "type": "terrain", "id": "ground", "size": 3200, "res": 384, "chunks": 8, "height": 26, "frequency": 0.0035, "flat": [0, 0, 60, 200], "mat": "ground", "seed": 7,
+          "mountains": { "inner": 650, "outer": 1350, "height": 330, "frequency": 0.0021 },
+          "peaks": [[-420, -1250, 560, 430], [680, -1120, 460, 330], [1180, 260, 520, 370], [-1220, 120, 560, 310], [180, 1320, 500, 290], [-80, -820, 300, 160]],
+          "layers": { "grass": "#5d7a34", "dry": "#8c8a4c", "rock": "#6f675f", "snow": "#e3e7ee", "rockSlope": [0.2, 0.34], "snowLine": [330, 430] } },
+        { "type": "compare", "id": "compare", "model": "oak", "pos": [0, 0, 0], "gap": 16, "footprint": 7 },
+        { "type": "prop", "id": "pedestal", "model": "pedestal", "pos": [0, 0, -24], "footprint": 4 },
+        { "type": "prop", "id": "showcase", "model": "knot", "pos": [0, 4.4, -24], "spin": { "axis": [0.35, 1, 0.2], "speed": 24 } },
+        { "type": "scatter", "id": "village", "model": "homestead", "count": 12, "inner": 55, "outer": 190, "spacing": 16, "seed": 2 },
+        { "type": "scatter", "id": "oaks", "model": "oak", "count": 1600, "inner": 32, "outer": 760, "spacing": 4.5, "scale": [0.75, 1.3], "maxSlope": 0.25, "maxHeight": 90, "seed": 3 },
+        { "type": "scatter", "id": "birches", "model": "birch", "count": 1400, "inner": 28, "outer": 700, "spacing": 2.6, "scale": [0.8, 1.3], "maxSlope": 0.25, "maxHeight": 110, "seed": 4 },
+        { "type": "scatter", "id": "pines", "model": "pine", "count": 9500, "inner": 90, "outer": 1500, "spacing": 2.6, "scale": [0.75, 1.45], "maxSlope": 0.4, "maxHeight": 200, "seed": 5 },
+        { "type": "scatter", "id": "rocks", "model": "rock", "count": 2600, "inner": 14, "outer": 1500, "spacing": 1.6, "scale": [0.4, 2.4], "tilt": 25, "sink": 0.3, "maxSlope": 0.6, "seed": 6 }
+    ],
+
+    "drop": {
+        "fit": 8,
+        "imposter": { "grid": 12, "res": 256, "mode": "hemi" },
+        "replace": ["compare"],
+        "field": { "type": "scatter", "id": "imported", "count": 300, "inner": 40, "outer": 300, "spacing": 5, "scale": [0.8, 1.2], "seed": 9 }
+    }
+}
+</script>
+
+<script>
+'use strict';
+// =====================================================================================================
+// Entity Imposter // WebGPU
+//
+// Octahedral imposters for any model or scene. Every model is baked once into an atlas of N x N views
+// (albedo + coverage, normal + depth) taken around an octahedron (full sphere) or hemi-octahedron (upper
+// half). At runtime a camera-facing quad per instance picks the three frames nearest the view direction,
+// reprojects every pixel's view ray into each frame (with depth parallax), blends them, relights with the
+// baked normals and writes the reconstructed depth. A compute pass culls every instance and splits it
+// into a mesh list and an imposter list (with a dithered cross-fade band) that feed indirect draws, plus
+// caster lists for 4 cascaded shadow maps, into which imposters render their reconstructed depth.
+//
+// Sections: config, math, noise, octahedral mapping | textures, materials, geometry, models, loaders |
+// WGSL, GPU mesh, baker, renderer | archetypes, entities, world | camera, input, HUD, panel, game | main
+// =====================================================================================================
+
+// ================================================================ config
+const MSAA = 4;
+const DEPTH_FORMAT = 'depth32float';        // reversed Z, infinite far plane
+const BAKE_DEPTH_FORMAT = 'depth24plus';
+const ALBEDO_FORMAT = 'rgba8unorm-srgb';    // atlas 0: albedo (premultiplied by coverage), coverage
+const NORMAL_FORMAT = 'rgba8unorm';         // atlas 1: object-space normal, depth
+const SURFACE_FORMAT = 'rgba8unorm';        // atlas 2: ambient occlusion, specular, gloss, translucency (wrap)
+const EMISSIVE_FORMAT = 'rgba8unorm-srgb';  // atlas 3 (models with emissive materials only): emission / EMISSIVE_RANGE
+const EMISSIVE_RANGE = 8;
+const AO_DIRS = 48;                         // directions of the per-vertex ambient occlusion bake
+const AO_RES = 256;
+const CASCADES = 4;                         // shadow map cascades (layers of one depth32float array)
+const SHADOW_FLOATS = 172;                  // Shadow uniform: 4 matrices, splits, texel sizes, 24 planes, params
+const LISTS = 1 + CASCADES;                 // culled instance lists per archetype: camera, then one per cascade
+const CHEAP_CASCADE = 2;                    // from this cascade on, imposters cast from one frame at their quad's depth
+const VF = 11;                              // vertex floats: position 3, normal 3, uv 2, color 3
+const INSTANCE_FLOATS = 12;                 // posScale, rotation quaternion, extra (x: forced LOD in, fade out)
+const INSTANCE_BYTES = INSTANCE_FLOATS * 4;
+const GLOBAL_FLOATS = 108;
+const FORCE = { auto: 0, mesh: 1, imposter: 2 };
+const LOD_MODES = ['auto', 'mesh', 'imposter'];
+const ATLAS_VIEWS = ['off', 'albedo', 'normal', 'depth', 'ao', 'surface', 'emissive'];
+const GRID_CHOICES = [4, 6, 8, 10, 12, 16, 20, 24, 32];
+const RES_CHOICES = [64, 128, 192, 256, 384, 512];
+const DEG = Math.PI / 180;
+
+const $ = sel => document.querySelector(sel);
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const sgn = x => (x >= 0 ? 1 : -1);
+// yield to the browser (lets a toast paint); the timer covers background tabs, where rAF is paused
+const nextFrame = () => new Promise(r => { requestAnimationFrame(r); setTimeout(r, 50); });
+const fmtK = n => (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Math.round(n)));
+const basename = p => p.split(/[\\/]/).pop();
+
+function srgbToLinear(c) { return c.map(x => (x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4))); }
+function hexToSrgb(h) {
+    if (Array.isArray(h)) return h.slice(0, 3);
+    h = String(h).replace('#', '');
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    return [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16) / 255);
+}
+const lin = h => srgbToLinear(hexToSrgb(h));
+
+// ================================================================ math (column-major matrices, WebGPU depth 0..1)
+const v3 = {
+    add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],
+    sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+    mul: (a, s) => [a[0] * s, a[1] * s, a[2] * s],
+    madd: (a, b, s) => [a[0] + b[0] * s, a[1] + b[1] * s, a[2] + b[2] * s],
+    dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
+    cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+    len: a => Math.hypot(a[0], a[1], a[2]),
+    norm: a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; },
+};
+
+const quat = {
+    identity: () => [0, 0, 0, 1],
+    axis(axis, rad) { const a = v3.norm(axis), s = Math.sin(rad / 2); return [a[0] * s, a[1] * s, a[2] * s, Math.cos(rad / 2)]; },
+    mul(a, b) {
+        return [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+            a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
+    },
+    // degrees: a number is a yaw; [x, y, z] is applied as Ry * Rx * Rz
+    euler(r) {
+        if (r === undefined || r === null) return quat.identity();
+        if (typeof r === 'number') r = [0, r, 0];
+        return quat.mul(quat.mul(quat.axis([0, 1, 0], r[1] * DEG), quat.axis([1, 0, 0], r[0] * DEG)), quat.axis([0, 0, 1], r[2] * DEG));
+    },
+    rotate(q, v) { const t = v3.mul(v3.cross(q, v), 2); return v3.add(v3.add(v, v3.mul(t, q[3])), v3.cross(q, t)); },
+    conj: q => [-q[0], -q[1], -q[2], q[3]],
+};
+
+const m4 = {
+    identity() { const m = new Float64Array(16); m[0] = m[5] = m[10] = m[15] = 1; return m; },
+    mul(a, b) {
+        const o = new Float64Array(16);
+        for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+            let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+            o[c * 4 + r] = s;
+        }
+        return o;
+    },
+    // reversed Z with an infinite far plane: depth 1 at `near`, 0 at infinity
+    perspective(fovy, aspect, near) {
+        const f = 1 / Math.tan(fovy / 2);
+        return new Float64Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, 0, -1, 0, 0, near, 0]);
+    },
+    lookAt(eye, target, up) {
+        const z = v3.norm(v3.sub(eye, target)), x = v3.norm(v3.cross(up, z)), y = v3.cross(z, x);
+        return new Float64Array([x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0,
+            -v3.dot(x, eye), -v3.dot(y, eye), -v3.dot(z, eye), 1]);
+    },
+    fromTRS(p, q, s) {
+        const [x, y, z, w] = q, [sx, sy, sz] = Array.isArray(s) ? s : [s, s, s];
+        const xx = x * x, yy = y * y, zz = z * z, xy = x * y, xz = x * z, yz = y * z, wx = w * x, wy = w * y, wz = w * z;
+        return new Float64Array([(1 - 2 * (yy + zz)) * sx, 2 * (xy + wz) * sx, 2 * (xz - wy) * sx, 0,
+            2 * (xy - wz) * sy, (1 - 2 * (xx + zz)) * sy, 2 * (yz + wx) * sy, 0,
+            2 * (xz + wy) * sz, 2 * (yz - wx) * sz, (1 - 2 * (xx + yy)) * sz, 0, p[0], p[1], p[2], 1]);
+    },
+    compose(pos, rot, scale) { return m4.fromTRS(pos || [0, 0, 0], quat.euler(rot), scale ?? 1); },
+    det3(m) { return v3.dot([m[0], m[1], m[2]], v3.cross([m[4], m[5], m[6]], [m[8], m[9], m[10]])); },
+    invert(a) {
+        const o = new Float64Array(16);
+        const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3], a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
+        const a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11], a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+        const b00 = a00 * a11 - a01 * a10, b01 = a00 * a12 - a02 * a10, b02 = a00 * a13 - a03 * a10, b03 = a01 * a12 - a02 * a11;
+        const b04 = a01 * a13 - a03 * a11, b05 = a02 * a13 - a03 * a12, b06 = a20 * a31 - a21 * a30, b07 = a20 * a32 - a22 * a30;
+        const b08 = a20 * a33 - a23 * a30, b09 = a21 * a32 - a22 * a31, b10 = a21 * a33 - a23 * a31, b11 = a22 * a33 - a23 * a32;
+        let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+        if (!det) return m4.identity();
+        det = 1 / det;
+        o[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det; o[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+        o[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det; o[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
+        o[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det; o[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+        o[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det; o[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
+        o[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det; o[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+        o[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det; o[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
+        o[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det; o[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
+        o[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det; o[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
+        return o;
+    },
+};
+
+// Frustum planes (inside: dot(n, p) + d >= 0). Reversed infinite Z has no far plane: the 6th never culls.
+function frustumPlanes(m) {
+    const row = r => [m[r], m[4 + r], m[8 + r], m[12 + r]];
+    const r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
+    const comb = (a, b, s) => a.map((x, i) => x + s * b[i]);
+    const planes = [comb(r3, r0, 1), comb(r3, r0, -1), comb(r3, r1, 1), comb(r3, r1, -1), comb(r3, r2, -1)]
+        .map(p => { const l = Math.hypot(p[0], p[1], p[2]) || 1; return p.map(x => x / l); });
+    planes.push([0, 0, 0, 1]);
+    return planes;
+}
+
+// ================================================================ noise (seeded)
+function rng(seed) {
+    let a = (seed * 2654435761) >>> 0 || 1;
+    return () => {
+        a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+function hash3(x, y, z, s) {
+    let h = (Math.imul(x, 0x27d4eb2d) + Math.imul(y, 0x165667b1) + Math.imul(z, 0x9e3779b1) + Math.imul(s, 0x85ebca6b)) | 0;
+    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+    h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
+    return ((h ^ (h >>> 15)) >>> 0) / 4294967296;
+}
+function noise3(x, y, z, s = 0) {
+    const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z), fx = x - ix, fy = y - iy, fz = z - iz;
+    const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy), w = fz * fz * (3 - 2 * fz);
+    const h = (a, b, c) => hash3(ix + a, iy + b, iz + c, s);
+    const x00 = lerp(h(0, 0, 0), h(1, 0, 0), u), x10 = lerp(h(0, 1, 0), h(1, 1, 0), u);
+    const x01 = lerp(h(0, 0, 1), h(1, 0, 1), u), x11 = lerp(h(0, 1, 1), h(1, 1, 1), u);
+    return lerp(lerp(x00, x10, v), lerp(x01, x11, v), w) * 2 - 1;
+}
+// ridged multifractal: sharp crests (mountain ranges), each octave weighted by the one below it
+function ridged(x, z, octaves, s) {
+    let t = 0, a = 0.5, w = 1, n = 0;
+    for (let i = 0; i < octaves; i++) {
+        let r = 1 - Math.abs(noise3(x, 0, z, s + i));
+        r *= r * w;
+        w = clamp(r * 2, 0, 1);
+        t += r * a;
+        n += a;
+        x *= 2.07; z *= 2.07; a *= 0.5;
+    }
+    return t / n;
+}
+function fbm(x, z, octaves, s) {
+    let a = 0.5, f = 1, t = 0, n = 0;
+    for (let i = 0; i < octaves; i++) { t += a * noise3(x * f, 0, z * f, s + i); n += a; a *= 0.5; f *= 2.03; }
+    return t / n;
+}
+
+// ================================================================ octahedral mapping (must match the WGSL)
+// p in [-1, 1]^2. Full: the whole sphere (lower half folded into the corners). Hemi: upper half only,
+// the diamond rotated 45 degrees to fill the square. Frame (i, j) of an N x N grid sits at p = (i, j) / (N - 1) * 2 - 1.
+const Oct = {
+    encode(d, full) {
+        if (full) {
+            const s = Math.abs(d[0]) + Math.abs(d[1]) + Math.abs(d[2]) || 1;
+            let x = d[0] / s, z = d[2] / s;
+            if (d[1] < 0) { const tx = x; x = (1 - Math.abs(z)) * sgn(tx); z = (1 - Math.abs(tx)) * sgn(z); }
+            return [x, z];
+        }
+        const y = Math.max(d[1], 0), s = Math.abs(d[0]) + y + Math.abs(d[2]) || 1;
+        const x = d[0] / s, z = d[2] / s;
+        return [x + z, z - x];
+    },
+    decode(p, full) {
+        let x, y, z;
+        if (full) {
+            x = p[0]; z = p[1]; y = 1 - Math.abs(x) - Math.abs(z);
+            if (y < 0) { const tx = x; x = (1 - Math.abs(z)) * sgn(tx); z = (1 - Math.abs(tx)) * sgn(z); }
+        } else {
+            x = (p[0] - p[1]) * 0.5; z = (p[0] + p[1]) * 0.5; y = 1 - Math.abs(x) - Math.abs(z);
+        }
+        return v3.norm([x, y, z]);
+    },
+    frameDir(i, j, n, full) { return Oct.decode([i / (n - 1) * 2 - 1, j / (n - 1) * 2 - 1], full); },
+    right(d) { return Math.abs(d[1]) > 0.9999 ? [1, 0, 0] : v3.norm([d[2], 0, -d[0]]); },
+    // the three frames around a (local) view direction and their barycentric weights
+    select(d, n, full, blend) {
+        const p = Oct.encode(d, full), g = p.map(x => clamp((x * 0.5 + 0.5) * (n - 1), 0, n - 1));
+        if (!blend) { const r = g.map(Math.round); return { cells: [r, r, r], w: [1, 0, 0] }; }
+        const b = g.map(x => Math.min(Math.floor(x), n - 2)), f = [g[0] - b[0], g[1] - b[1]];
+        if (f[0] > f[1]) return { cells: [b, [b[0] + 1, b[1]], [b[0] + 1, b[1] + 1]], w: [1 - f[0], f[0] - f[1], f[1]] };
+        return { cells: [b, [b[0], b[1] + 1], [b[0] + 1, b[1] + 1]], w: [1 - f[1], f[1] - f[0], f[0]] };
+    },
+};
+
+// ================================================================ textures (procedural, drawn with Canvas 2D)
+function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+const pick = (arr, r) => arr[Math.floor(r() * arr.length) % arr.length];
+// draw fn at (x, y) and at its wrapped copies near the edges, so patterns tile
+function wrap9(S, x, y, m, fn) {
+    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {
+        const px = x + ox, py = y + oy;
+        if (px > -m && px < S + m && py > -m && py < S + m) fn(px, py);
+    }
+}
+
+const PATTERNS = {
+    flat(g, S, c) { g.fillStyle = c[0]; g.fillRect(0, 0, S, S); },
+    checker(g, S, c) {
+        for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) { g.fillStyle = c[(x + y) % 2] || '#fff'; g.fillRect(x * S / 8, y * S / 8, S / 8, S / 8); }
+    },
+    grass(g, S, c, r) {
+        g.fillStyle = c[0]; g.fillRect(0, 0, S, S); g.lineWidth = 1.2;
+        for (let i = 0; i < 2600; i++) {
+            const x = r() * S, y = r() * S, dx = (r() - 0.5) * 4, dy = -3 - r() * 6;
+            g.strokeStyle = pick(c, r); g.globalAlpha = 0.35 + r() * 0.4;
+            wrap9(S, x, y, 10, (px, py) => { g.beginPath(); g.moveTo(px, py); g.lineTo(px + dx, py + dy); g.stroke(); });
+        }
+        g.globalAlpha = 1;
+    },
+    bark(g, S, c, r) {
+        g.fillStyle = c[0]; g.fillRect(0, 0, S, S);
+        for (let i = 0; i < 90; i++) {
+            const x0 = r() * S, k = 1 + Math.floor(r() * 3), ph = r() * 6.28, A = 2 + r() * 5;
+            g.strokeStyle = r() < 0.65 ? c[1] : (c[2] || c[0]); g.globalAlpha = 0.45 + r() * 0.45; g.lineWidth = 1 + r() * 3.5;
+            for (const ox of [-S, 0, S]) {
+                g.beginPath();
+                for (let y = 0; y <= S; y += 4) { const x = x0 + ox + Math.sin(y / S * Math.PI * 2 * k + ph) * A; if (y) g.lineTo(x, y); else g.moveTo(x, y); }
+                g.stroke();
+            }
+        }
+        g.globalAlpha = 1;
+    },
+    birch(g, S, c, r) {
+        g.fillStyle = c[0]; g.fillRect(0, 0, S, S);
+        for (let i = 0; i < 70; i++) {
+            const x = r() * S, y = r() * S, w = 6 + r() * 30, h = 1.5 + r() * 3.5;
+            g.fillStyle = r() < 0.7 ? c[1] : (c[2] || c[1]); g.globalAlpha = 0.55 + r() * 0.4;
+            wrap9(S, x, y, 40, (px, py) => g.fillRect(px, py, w, h));
+        }
+        g.globalAlpha = 1;
+    },
+    needles(g, S, c, r) {
+        g.fillStyle = c[0]; g.fillRect(0, 0, S, S); g.lineWidth = 1.3;
+        for (let i = 0; i < 3500; i++) {
+            const x = r() * S, y = r() * S, a = Math.PI / 2 + (r() - 0.5) * 1.6, L = 4 + r() * 8;
+            g.strokeStyle = pick(c, r); g.globalAlpha = 0.5 + r() * 0.4;
+            wrap9(S, x, y, 12, (px, py) => { g.beginPath(); g.moveTo(px, py); g.lineTo(px + Math.cos(a) * L, py + Math.sin(a) * L); g.stroke(); });
+        }
+        g.globalAlpha = 1;
+    },
+    leaves(g, S, c, r) {
+        g.clearRect(0, 0, S, S);
+        for (let i = 0; i < 26; i++) {
+            const x = S * (0.16 + r() * 0.68), y = S * (0.16 + r() * 0.68), L = S * (0.14 + r() * 0.1), a = r() * 6.28;
+            g.save(); g.translate(x, y); g.rotate(a);
+            g.fillStyle = pick(c, r);
+            g.beginPath(); g.moveTo(-L / 2, 0); g.quadraticCurveTo(0, -L * 0.4, L / 2, 0); g.quadraticCurveTo(0, L * 0.4, -L / 2, 0); g.fill();
+            g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 1; g.beginPath(); g.moveTo(-L / 2, 0); g.lineTo(L / 2, 0); g.stroke();
+            g.restore();
+        }
+    },
+    rock(g, S, c, r) {
+        g.fillStyle = c[0]; g.fillRect(0, 0, S, S);
+        for (let i = 0; i < 500; i++) {
+            const x = r() * S, y = r() * S, rad = 2 + r() * 14;
+            g.fillStyle = pick(c, r); g.globalAlpha = 0.12 + r() * 0.14;
+            wrap9(S, x, y, rad, (px, py) => { g.beginPath(); g.arc(px, py, rad, 0, 6.283); g.fill(); });
+        }
+        g.strokeStyle = '#000'; g.lineWidth = 1;
+        for (let i = 0; i < 24; i++) {
+            let x = r() * S, y = r() * S; g.globalAlpha = 0.15 + r() * 0.15; g.beginPath(); g.moveTo(x, y);
+            for (let k = 0; k < 8; k++) { x += (r() - 0.5) * 18; y += (r() - 0.5) * 18; g.lineTo(x, y); }
+            g.stroke();
+        }
+        g.globalAlpha = 1;
+    },
+    plaster(g, S, c, r) {
+        g.fillStyle = c[0]; g.fillRect(0, 0, S, S);
+        for (let i = 0; i < 3000; i++) { g.fillStyle = pick(c, r); g.globalAlpha = 0.25; g.fillRect(r() * S, r() * S, 1 + r() * 2, 1 + r() * 2); }
+        g.globalAlpha = 1;
+    },
+    bricks(g, S, c, r) {
+        g.fillStyle = c[2] || '#ccc'; g.fillRect(0, 0, S, S);
+        const rows = 8, bw = S / 4, bh = S / rows;
+        for (let row = 0; row < rows; row++) {
+            const off = row % 2 ? bw / 2 : 0;
+            for (let k = -1; k < 5; k++) { g.fillStyle = r() < 0.5 ? c[0] : c[1]; g.fillRect(k * bw + off + 2, row * bh + 2, bw - 4, bh - 4); }
+        }
+    },
+    tiles(g, S, c, r) {
+        g.fillStyle = c[1]; g.fillRect(0, 0, S, S);
+        const rows = 8, tw = S / 6, th = S / rows;
+        for (let row = 0; row < rows; row++) {
+            const off = row % 2 ? tw / 2 : 0;
+            for (let k = -1; k < 7; k++) {
+                const x0 = k * tw + off + 1, y0 = row * th;
+                g.fillStyle = pick(c, r);
+                g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + tw - 2, y0); g.lineTo(x0 + tw - 2, y0 + th * 0.6);
+                g.quadraticCurveTo(x0 + (tw - 2) / 2, y0 + th * 1.15, x0, y0 + th * 0.6); g.fill();
+                g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(x0, y0, tw - 2, 2);
+            }
+        }
+    },
+    planks(g, S, c, r) {
+        const n = 5, pw = S / n;
+        for (let k = 0; k < n; k++) {
+            g.fillStyle = pick(c, r); g.fillRect(k * pw, 0, pw, S);
+            g.strokeStyle = '#000'; g.globalAlpha = 0.12;
+            for (let l = 0; l < 7; l++) { const x = k * pw + r() * pw; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + (r() - 0.5) * 6, S); g.stroke(); }
+            g.globalAlpha = 0.5; g.fillStyle = '#000'; g.fillRect(k * pw, 0, 2, S); g.globalAlpha = 1;
+        }
+    },
+    window(g, S, c) {
+        g.fillStyle = c[1]; g.fillRect(0, 0, S, S);
+        const m = S * 0.1, gap = S * 0.06, p = (S - 2 * m - gap) / 2;
+        for (const [i, j] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+            const x = m + i * (p + gap), y = m + j * (p + gap), gr = g.createLinearGradient(x, y, x + p, y + p);
+            gr.addColorStop(0, c[0]); gr.addColorStop(0.55, '#0e1820'); gr.addColorStop(1, c[0]);
+            g.fillStyle = gr; g.fillRect(x, y, p, p);
+        }
+    },
+    metal(g, S, c, r) {
+        g.fillStyle = c[0]; g.fillRect(0, 0, S, S);
+        for (let i = 0; i < 260; i++) {
+            const y = r() * S, x = r() * S, w = 20 + r() * 80; g.fillStyle = pick(c, r); g.globalAlpha = 0.12 + r() * 0.15;
+            wrap9(S, x, y, w, (px, py) => g.fillRect(px, py, w, 1 + r() * 2));
+        }
+        g.globalAlpha = 1;
+    },
+};
+
+const TextureFactory = {
+    canvas(def) {
+        const S = def.size || 256, c = makeCanvas(S, S), g = c.getContext('2d');
+        (PATTERNS[def.pattern] || PATTERNS.flat)(g, S, (def.colors || ['#ffffff']).map(x => (Array.isArray(x) ? `rgb(${x.map(v => v * 255).join(',')})` : x)), rng(def.seed ?? 7));
+        return c;
+    },
+};
+
+// fraction of pixels at or above the alpha cutoff
+function coverageOf(g, w, h, cutoff) {
+    const d = g.getImageData(0, 0, w, h).data, t = cutoff * 255;
+    let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] >= t) n++;
+    return n / (w * h);
+}
+// scale a mip level's alpha so the alpha test keeps the coverage of level 0 (else foliage thins out with distance)
+function keepCoverage(g, w, h, cutoff, target) {
+    const img = g.getImageData(0, 0, w, h), d = img.data, a = [];
+    for (let i = 3; i < d.length; i += 4) a.push(d[i]);
+    a.sort((x, y) => y - x);
+    const thr = a[Math.min(a.length - 1, Math.floor(target * a.length))];
+    if (!thr) return;
+    const s = cutoff * 255 / thr;
+    for (let i = 3; i < d.length; i += 4) d[i] = Math.min(255, d[i] * s);
+    g.putImageData(img, 0, 0);
+}
+// canvas / ImageBitmap -> sRGB texture with a full mip chain (drawn on the CPU)
+function uploadImage(device, src, cutoff = 0) {
+    const scale = Math.min(1, 2048 / Math.max(src.width, src.height));
+    const w = Math.max(1, Math.round(src.width * scale)), h = Math.max(1, Math.round(src.height * scale));
+    let base = src, target = 0;
+    if (scale < 1 || cutoff > 0) {
+        base = makeCanvas(w, h);
+        const g = base.getContext('2d', { willReadFrequently: cutoff > 0 });
+        g.drawImage(src, 0, 0, w, h);
+        if (cutoff > 0) target = coverageOf(g, w, h, cutoff);
+    }
+    const levels = Math.floor(Math.log2(Math.max(w, h))) + 1, U = GPUTextureUsage;
+    const tex = device.createTexture({ size: [w, h], format: 'rgba8unorm-srgb', mipLevelCount: levels, usage: U.TEXTURE_BINDING | U.COPY_DST | U.RENDER_ATTACHMENT });
+    let prev = base;
+    for (let l = 0; l < levels; l++) {
+        const lw = Math.max(1, w >> l), lh = Math.max(1, h >> l);
+        let cur = prev;
+        if (l > 0) {
+            cur = makeCanvas(lw, lh);
+            const g = cur.getContext('2d', { willReadFrequently: cutoff > 0 });
+            g.imageSmoothingQuality = 'high';
+            g.drawImage(prev, 0, 0, lw, lh);
+            if (cutoff > 0) keepCoverage(g, lw, lh, cutoff, target);
+        }
+        device.queue.copyExternalImageToTexture({ source: cur }, { texture: tex, mipLevel: l }, [lw, lh]);
+        prev = cur;
+    }
+    return tex;
+}
+
+// ================================================================ materials
+// Scenario materials: { pattern, colors, seed, tint (sRGB), alphaCutoff, doubleSided, backfaceFlip, wrap, uvScale,
+// spec, gloss, emissive: { color, strength } }. Imported ones carry `color` (linear) and an `image`.
+// Only surface properties live here; how they are lit is decided per frame by the lighting scenario.
+class Material {
+    constructor(name, def = {}) {
+        this.name = name;
+        this.def = def;
+        this.color = def.color ? def.color.slice(0, 3) : def.tint ? lin(def.tint) : [1, 1, 1];
+        this.alpha = def.alpha ?? 1;
+        this.alphaCutoff = def.alphaCutoff ?? 0;
+        this.wrap = def.wrap ?? 0;
+        this.uvScale = def.uvScale ?? 1;
+        this.doubleSided = !!def.doubleSided;
+        this.backfaceFlip = def.backfaceFlip ?? true;
+        this.spec = def.spec ?? 0.1;               // specular strength
+        this.gloss = def.gloss ?? 0.3;             // 0 rough .. 1 mirror-like
+        const em = def.emissive;
+        this.emissive = em ? (em.linear ? em.color.slice(0, 3) : lin(em.color || '#ffffff')).map(x => x * (em.strength ?? 1)) : [0, 0, 0];
+        this.image = def.image || null;
+        this.gpu = null;
+    }
+
+    bindGroup(r) {
+        if (this.gpu) return this.gpu.bg;
+        const d = r.device;
+        let tex = r.whiteTexture, own = false;
+        if (this.image) { tex = uploadImage(d, this.image, this.alphaCutoff); own = true; }
+        else if (this.def.pattern) tex = r.patternTexture(this.def);
+        const ub = d.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        d.queue.writeBuffer(ub, 0, new Float32Array([...this.color, this.alpha, this.alphaCutoff, this.wrap, this.uvScale, this.backfaceFlip ? 1 : 0,
+            this.spec, this.gloss, 0, 0, ...this.emissive, 0]));
+        const bg = d.createBindGroup({ layout: r.matBgl, entries: [{ binding: 0, resource: { buffer: ub } }, { binding: 1, resource: tex.createView() }] });
+        this.gpu = { tex, own, ub, bg };
+        return bg;
+    }
+
+    get isEmissive() { return this.emissive.some(x => x > 0); }
+
+    destroy() {
+        if (!this.gpu) return;
+        this.gpu.ub.destroy();
+        if (this.gpu.own) this.gpu.tex.destroy();
+        this.gpu = null;
+    }
+}
+
+// ================================================================ geometry
+// Geo: a shape in its own space (positions, normals, uv in metres, indices; CCW = front)
+class Geo {
+    constructor() { this.p = []; this.n = []; this.uv = []; this.idx = []; }
+    get count() { return this.p.length / 3; }
+    vert(p, n, uv) { this.p.push(p[0], p[1], p[2]); this.n.push(n[0], n[1], n[2]); this.uv.push(uv[0], uv[1]); return this.count - 1; }
+    tri(a, b, c) { this.idx.push(a, b, c); }
+    quad(a, b, c, d) { this.idx.push(a, b, c, a, c, d); }
+    P(i) { return [this.p[i * 3], this.p[i * 3 + 1], this.p[i * 3 + 2]]; }
+    N(i) { return [this.n[i * 3], this.n[i * 3 + 1], this.n[i * 3 + 2]]; }
+    // flat polygon (convex, fan-triangulated) facing away from `inside`
+    poly(pts, inside) {
+        let n = v3.norm(v3.cross(v3.sub(pts[1], pts[0]), v3.sub(pts[2], pts[0])));
+        const c = v3.mul(pts.reduce((a, p) => v3.add(a, p), [0, 0, 0]), 1 / pts.length);
+        if (v3.dot(n, v3.sub(c, inside)) < 0) { pts = pts.slice().reverse(); n = v3.mul(n, -1); }
+        const t1 = v3.norm(v3.sub(pts[1], pts[0])), t2 = v3.cross(n, t1), b = this.count;
+        for (const p of pts) { const q = v3.sub(p, pts[0]); this.vert(p, n, [v3.dot(q, t1), -v3.dot(q, t2)]); }
+        for (let i = 1; i + 1 < pts.length; i++) this.tri(b, b + i, b + i + 1);
+    }
+    smoothNormals() {
+        const acc = new Float64Array(this.p.length);
+        for (let i = 0; i < this.idx.length; i += 3) {
+            const [a, b, c] = [this.idx[i], this.idx[i + 1], this.idx[i + 2]];
+            const fn = v3.cross(v3.sub(this.P(b), this.P(a)), v3.sub(this.P(c), this.P(a)));
+            for (const k of [a, b, c]) { acc[k * 3] += fn[0]; acc[k * 3 + 1] += fn[1]; acc[k * 3 + 2] += fn[2]; }
+        }
+        for (let i = 0; i < this.count; i++) {
+            const n = v3.norm([acc[i * 3], acc[i * 3 + 1], acc[i * 3 + 2]]);
+            this.n[i * 3] = n[0]; this.n[i * 3 + 1] = n[1]; this.n[i * 3 + 2] = n[2];
+        }
+    }
+    // make every triangle wind CCW around its vertex normals
+    orient() {
+        for (let i = 0; i < this.idx.length; i += 3) {
+            const [a, b, c] = [this.idx[i], this.idx[i + 1], this.idx[i + 2]];
+            const fn = v3.cross(v3.sub(this.P(b), this.P(a)), v3.sub(this.P(c), this.P(a)));
+            if (v3.dot(fn, v3.add(v3.add(this.N(a), this.N(b)), this.N(c))) < 0) { this.idx[i + 1] = c; this.idx[i + 2] = b; }
+        }
+    }
+}
+
+const BOX_FACES = [
+    [[1, 0, 0], [0, 0, -1], [0, 1, 0]], [[-1, 0, 0], [0, 0, 1], [0, 1, 0]],
+    [[0, 1, 0], [1, 0, 0], [0, 0, -1]], [[0, -1, 0], [1, 0, 0], [0, 0, 1]],
+    [[0, 0, 1], [1, 0, 0], [0, 1, 0]], [[0, 0, -1], [-1, 0, 0], [0, 1, 0]],
+];
+
+// Part shapes: (part def) -> Geo. Each is built in its own space, then placed by the part's pos / rot / scale.
+const SHAPES = {
+    box(d) {
+        const s = d.size || [1, 1, 1], h = [s[0] / 2, s[1] / 2, s[2] / 2], g = new Geo();
+        for (const [n, u, v] of BOX_FACES) {
+            const hn = Math.abs(v3.dot(h, n)), hu = Math.abs(v3.dot(h, u)), hv = Math.abs(v3.dot(h, v)), c = v3.mul(n, hn), b = g.count;
+            for (const [a, e] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) g.vert(v3.add(c, v3.add(v3.mul(u, a * hu), v3.mul(v, e * hv))), n, [(a + 1) * hu, (1 - e) * hv]);
+            g.quad(b, b + 1, b + 2, b + 3);
+        }
+        return g;
+    },
+    // y = 0 .. h, radius r0 at the bottom, r1 at the top; `jag` alternates the bottom radius (fir skirts)
+    cylinder(d) {
+        const r0 = d.r0 ?? d.r ?? 0.5, r1 = d.r1 ?? r0, h = d.h ?? 1, jag = d.jag || 0, g = new Geo();
+        const seg = Math.max(3, (d.seg || 12) + (jag && (d.seg || 12) % 2 ? 1 : 0));
+        const slope = (r0 - r1) / h, ravg = (r0 + r1) / 2, slant = Math.hypot(h, r0 - r1);
+        const rb = i => r0 * (1 + (i % 2 ? -jag : jag));
+        for (let i = 0; i <= seg; i++) {
+            const a = i / seg * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a), n = v3.norm([ca, slope, sa]);
+            g.vert([ca * rb(i), 0, sa * rb(i)], n, [a * ravg, 0]);
+            g.vert([ca * r1, h, sa * r1], n, [a * ravg, slant]);
+        }
+        for (let i = 0; i < seg; i++) { const b = i * 2; g.quad(b, b + 1, b + 3, b + 2); }
+        const cap = (y, rf, s) => {
+            const c = g.vert([0, y, 0], [0, s, 0], [0, 0]), b = g.count;
+            for (let i = 0; i <= seg; i++) { const a = i / seg * Math.PI * 2, r = rf(i); g.vert([Math.cos(a) * r, y, Math.sin(a) * r], [0, s, 0], [Math.cos(a) * r, Math.sin(a) * r]); }
+            for (let i = 0; i < seg; i++) { if (s < 0) g.tri(c, b + i, b + i + 1); else g.tri(c, b + i + 1, b + i); }
+        };
+        if (d.caps !== false) { cap(0, rb, -1); if (r1 > 1e-3) cap(h, () => r1, 1); }
+        return g;
+    },
+    cone(d) { return SHAPES.cylinder({ ...d, r0: d.r ?? d.r0 ?? 0.5, r1: 0 }); },
+    // icosphere, optionally displaced by 3D value noise (rocks)
+    sphere(d) {
+        const r = d.r ?? 1, amp = d.noise || 0, freq = d.freq || 1.5, seed = d.seed || 1, t = (1 + Math.sqrt(5)) / 2;
+        let P = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map(v3.norm);
+        let F = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+            [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+        for (let s = 0; s < (d.subdiv ?? 2); s++) {
+            const cache = new Map(), mid = (a, b) => {
+                const k = a < b ? a + ',' + b : b + ',' + a;
+                if (!cache.has(k)) { cache.set(k, P.length); P.push(v3.norm(v3.mul(v3.add(P[a], P[b]), 0.5))); }
+                return cache.get(k);
+            };
+            F = F.flatMap(([a, b, c]) => { const ab = mid(a, b), bc = mid(b, c), ca = mid(c, a); return [[a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]]; });
+        }
+        const g = new Geo();
+        for (const p of P) {
+            const k = r * (1 + amp * noise3(p[0] * freq + 11, p[1] * freq, p[2] * freq, seed));
+            g.vert(v3.mul(p, k), p, [(p[0] + p[2]) * k, p[1] * k]);
+        }
+        for (const f of F) g.tri(f[0], f[1], f[2]);
+        g.smoothNormals();
+        g.orient();
+        return g;
+    },
+    knot(d) {
+        const p = d.p || 2, q = d.q || 3, R = d.R || 1, tube = d.tube || 0.3, seg = d.seg || 200, rad = d.rad || 16, g = new Geo();
+        const curve = u => { const qu = q / p * u, cs = Math.cos(qu); return [R * (2 + cs) * 0.5 * Math.cos(u), R * (2 + cs) * 0.5 * Math.sin(u), R * Math.sin(qu) * 0.5]; };
+        for (let i = 0; i <= seg; i++) {
+            const u = i / seg * p * Math.PI * 2, P1 = curve(u), P2 = curve(u + 0.01), T = v3.sub(P2, P1);
+            const B = v3.norm(v3.cross(T, v3.add(P2, P1))), N = v3.norm(v3.cross(B, T));
+            for (let j = 0; j <= rad; j++) {
+                const v = j / rad * Math.PI * 2, pos = v3.add(P1, v3.add(v3.mul(N, -tube * Math.cos(v)), v3.mul(B, tube * Math.sin(v))));
+                g.vert(pos, v3.norm(v3.sub(pos, P1)), [u * R, v * tube]);
+            }
+        }
+        for (let i = 0; i < seg; i++) for (let j = 0; j < rad; j++) {
+            const a = i * (rad + 1) + j, b = (i + 1) * (rad + 1) + j;
+            g.quad(a, b, b + 1, a + 1);
+        }
+        g.orient();
+        return g;
+    },
+    // profile [[r, y], ...] from the bottom up, turned around Y; flat along the profile, smooth around
+    lathe(d) {
+        const prof = d.profile || [[0, 0], [1, 0], [1, 1], [0, 1]], seg = d.seg || 24, g = new Geo();
+        for (let k = 0; k + 1 < prof.length; k++) {
+            const [r0, y0] = prof[k], [r1, y1] = prof[k + 1], L = Math.hypot(r1 - r0, y1 - y0);
+            if (L < 1e-6) continue;
+            const nx = (y1 - y0) / L, ny = -(r1 - r0) / L, b = g.count;
+            for (let i = 0; i <= seg; i++) {
+                const a = i / seg * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a), n = [nx * ca, ny, nx * sa];
+                g.vert([r0 * ca, y0, r0 * sa], n, [a * Math.max(r0, r1), y0]);
+                g.vert([r1 * ca, y1, r1 * sa], n, [a * Math.max(r0, r1), y0 + L]);
+            }
+            for (let i = 0; i < seg; i++) { const c = b + i * 2; g.quad(c, c + 1, c + 3, c + 2); }
+        }
+        g.orient();
+        return g;
+    },
+    // gable roof: `size` [width (x), height, depth (z)], ridge along x at y = height
+    roof(d) {
+        const [w, h, dd] = d.size || [4, 2, 4], x = w / 2, z = dd / 2, g = new Geo(), inside = [0, h / 3, 0];
+        g.poly([[-x, 0, z], [x, 0, z], [x, h, 0], [-x, h, 0]], inside);
+        g.poly([[x, 0, -z], [-x, 0, -z], [-x, h, 0], [x, h, 0]], inside);
+        g.poly([[x, 0, z], [x, 0, -z], [x, h, 0]], inside);
+        g.poly([[-x, 0, -z], [-x, 0, z], [-x, h, 0]], inside);
+        g.poly([[-x, 0, -z], [x, 0, -z], [x, 0, z], [-x, 0, z]], [0, 1, 0]);
+        return g;
+    },
+    // leaf cards scattered in an ellipsoid, normals bent outward so the clump lights like a volume
+    foliage(d) {
+        const [rx, ry, rz] = d.radius || [1, 1, 1], cnt = d.count || 40, s = (d.card || 0.8) / 2, rnd = rng(d.seed || 1), g = new Geo();
+        for (let k = 0; k < cnt; k++) {
+            let u;
+            do { u = [rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1]; } while (v3.len(u) > 1);
+            const c = [u[0] * rx, u[1] * ry, u[2] * rz];
+            const nr = v3.norm([rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1]);
+            const t = v3.norm(v3.cross(nr, Math.abs(nr[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0])), b = v3.cross(nr, t);
+            const out = v3.len(u) > 0.05 ? v3.norm(u) : nr, n = v3.norm(v3.add(v3.add(v3.mul(out, 0.85), v3.mul(nr, 0.15)), [0, 0.2, 0]));
+            const base = g.count;
+            for (const [a, e] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) g.vert(v3.add(c, v3.add(v3.mul(t, a * s), v3.mul(b, e * s))), n, [(a + 1) / 2, (1 - e) / 2]);
+            g.quad(base, base + 1, base + 2, base + 3);
+        }
+        return g;
+    },
+};
+
+// MeshBuilder: merges placed geometry into one vertex / index buffer, one submesh (index range) per material
+class MeshBuilder {
+    constructor() { this.groups = new Map(); }
+
+    // src: { p, n, uv, col?, idx } (arrays or typed arrays); M: placement matrix; color: linear tint
+    add(src, material, M = null, color = null) {
+        const n = src.p.length / 3, v = new Float32Array(n * VF);
+        for (let i = 0; i < n; i++) {
+            const o = i * VF;
+            v[o] = src.p[i * 3]; v[o + 1] = src.p[i * 3 + 1]; v[o + 2] = src.p[i * 3 + 2];
+            v[o + 3] = src.n[i * 3]; v[o + 4] = src.n[i * 3 + 1]; v[o + 5] = src.n[i * 3 + 2];
+            v[o + 6] = src.uv[i * 2]; v[o + 7] = src.uv[i * 2 + 1];
+            if (src.col) { v[o + 8] = src.col[i * 3]; v[o + 9] = src.col[i * 3 + 1]; v[o + 10] = src.col[i * 3 + 2]; }
+            else v[o + 8] = v[o + 9] = v[o + 10] = 1;
+        }
+        this.push(material, v, Uint32Array.from(src.idx), M, color);
+    }
+
+    // append another MeshData (nested imported model)
+    addMesh(mesh, M) {
+        for (const s of mesh.submeshes) {
+            const v = mesh.vertices.slice(s.vfirst * VF, (s.vfirst + s.vcount) * VF);
+            const idx = mesh.indices.slice(s.first, s.first + s.count).map(i => i - s.vfirst);
+            this.push(s.material, v, idx, M, null);
+        }
+    }
+
+    push(material, v, idx, M, color) {
+        if (M) {
+            const inv = m4.invert(M);
+            for (let o = 0; o < v.length; o += VF) {
+                const x = v[o], y = v[o + 1], z = v[o + 2], nx = v[o + 3], ny = v[o + 4], nz = v[o + 5];
+                v[o] = M[0] * x + M[4] * y + M[8] * z + M[12];
+                v[o + 1] = M[1] * x + M[5] * y + M[9] * z + M[13];
+                v[o + 2] = M[2] * x + M[6] * y + M[10] * z + M[14];
+                const a = inv[0] * nx + inv[1] * ny + inv[2] * nz, b = inv[4] * nx + inv[5] * ny + inv[6] * nz, c = inv[8] * nx + inv[9] * ny + inv[10] * nz;
+                const l = Math.hypot(a, b, c) || 1;
+                v[o + 3] = a / l; v[o + 4] = b / l; v[o + 5] = c / l;
+            }
+            if (m4.det3(M) < 0) for (let i = 0; i < idx.length; i += 3) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
+        }
+        if (color) for (let o = 0; o < v.length; o += VF) { v[o + 8] *= color[0]; v[o + 9] *= color[1]; v[o + 10] *= color[2]; }
+        let grp = this.groups.get(material);
+        if (!grp) this.groups.set(material, grp = { chunks: [], verts: 0, idx: 0 });
+        grp.chunks.push({ v, idx });
+        grp.verts += v.length / VF;
+        grp.idx += idx.length;
+    }
+
+    finish() {
+        let nv = 0, ni = 0;
+        for (const g of this.groups.values()) { nv += g.verts; ni += g.idx; }
+        const V = new Float32Array(nv * VF), I = new Uint32Array(ni), subs = [];
+        let vo = 0, io = 0;
+        for (const [material, g] of this.groups) {
+            const first = io, vfirst = vo;
+            for (const c of g.chunks) {
+                V.set(c.v, vo * VF);
+                for (let i = 0; i < c.idx.length; i++) I[io + i] = c.idx[i] + vo;
+                io += c.idx.length;
+                vo += c.v.length / VF;
+            }
+            subs.push({ material, first, count: io - first, vfirst, vcount: vo - vfirst });
+        }
+        return new MeshData(V, I, subs);
+    }
+}
+
+// Interleaved vertices + indices + submeshes, with bounds and the bounding sphere the imposter is baked around
+class MeshData {
+    constructor(vertices, indices, submeshes) {
+        this.vertices = vertices;
+        this.indices = indices;
+        this.submeshes = submeshes;
+        this.computeBounds();
+    }
+
+    get triangles() { return this.indices.length / 3; }
+
+    computeBounds() {
+        const V = this.vertices, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+        for (let o = 0; o < V.length; o += VF) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], V[o + k]); max[k] = Math.max(max[k], V[o + k]); }
+        if (!V.length) { min.fill(0); max.fill(0); }
+        this.min = min; this.max = max;
+        this.center = v3.mul(v3.add(min, max), 0.5);
+        let r = 0;
+        for (let o = 0; o < V.length; o += VF) r = Math.max(r, Math.hypot(V[o] - this.center[0], V[o + 1] - this.center[1], V[o + 2] - this.center[2]));
+        this.radius = Math.max(r, 1e-3);
+    }
+
+    // imported models: scale the largest side to `size` metres, base centred on the origin
+    fit(size) {
+        const ext = v3.sub(this.max, this.min), s = size / Math.max(ext[0], ext[1], ext[2], 1e-6);
+        const o = [this.center[0], this.min[1], this.center[2]], V = this.vertices;
+        for (let i = 0; i < V.length; i += VF) for (let k = 0; k < 3; k++) V[i + k] = (V[i + k] - o[k]) * s;
+        this.computeBounds();
+    }
+}
+
+// ================================================================ models
+// ModelAsset: a model's mesh, its GPU buffers, its imposter bake settings and atlas. Shared by every
+// world built while it is valid; kind = 'model' (scenario), 'generated' (terrain) or 'import' (dropped file).
+class ModelAsset {
+    constructor(name, mesh, settings, lodBias = 1, kind = 'model') {
+        this.name = name;
+        this.mesh = mesh;
+        this.settings = settings;               // bake: enabled, grid, res, mode, ao (strength, 0 = none)
+        this.emissive = mesh.submeshes.some(s => s.material.isEmissive);
+        this.lodBias = lodBias;
+        this.kind = kind;
+        this.gpuMesh = null;
+        this.atlas = null;
+        this.castShadows = kind !== 'generated';
+        this.version = 0;               // bumps when the atlas changes
+    }
+
+    gpu(r) { return this.gpuMesh || (this.gpuMesh = new GpuMesh(r, this.mesh, this.settings.ao || 0)); }
+
+    destroy() {
+        this.gpuMesh?.destroy(); this.gpuMesh = null;
+        this.atlas?.destroy(); this.atlas = null;
+        if (this.kind === 'import') for (const s of this.mesh.submeshes) s.material.destroy();
+    }
+}
+
+// ModelLibrary: scenario materials and models -> ModelAssets (built on first use), plus imported models.
+// Assets made stale by a new scenario are retired and destroyed once the new world is live.
+class ModelLibrary {
+    constructor() {
+        this.materials = new Map();
+        this.assets = new Map();
+        this.defs = {};
+        this.defaults = {};
+        this.retired = [];
+        this.warnings = [];
+        this.fallback = new Material('default', { tint: '#b0b0b0' });
+    }
+
+    load(sc) {
+        this.warnings = [];
+        for (const [name, def] of Object.entries(sc.materials || {})) {
+            const key = JSON.stringify(def), m = this.materials.get(name);
+            if (m && m.key === key) continue;
+            if (m) this.retired.push(m);
+            this.materials.set(name, Object.assign(new Material(name, def), { key }));
+        }
+        this.defs = sc.models || {};
+        this.defaults = sc.imposter || {};
+        // what the bakes depend on: geometry, materials, bake settings. Never the lighting.
+        const key = JSON.stringify([sc.models, sc.materials, this.defaults.grid, this.defaults.res, this.defaults.mode, this.defaults.ao]);
+        if (key !== this.key) {
+            for (const [n, a] of this.assets) if (a.kind !== 'import') { this.retired.push(a); this.assets.delete(n); }
+            this.key = key;
+        }
+    }
+
+    flushRetired() { for (const x of this.retired) x.destroy(); this.retired = []; }
+
+    material(name) {
+        const m = this.materials.get(name);
+        if (m) return m;
+        if (name) this.warnings.push(`unknown material "${name}"`);
+        return this.fallback;
+    }
+
+    settings(imp) {
+        const s = { ...this.defaults, ...(imp || {}) }, ao = clamp(s.ao ?? 1, 0, 1);
+        if (imp === false) return { enabled: false, ao };
+        return { enabled: true, grid: clamp(s.grid ?? 12, 2, 64), res: s.res ?? 128, mode: s.mode === 'full' ? 'full' : 'hemi', ao };
+    }
+
+    asset(name) {
+        let a = this.assets.get(name);
+        if (a) return a;
+        const def = this.defs[name];
+        if (!def) throw new Error(`unknown model "${name}"`);
+        const b = new MeshBuilder();
+        this.build(def, b, m4.identity(), 0);
+        a = new ModelAsset(name, b.finish(), this.settings(def.imposter), def.lodBias ?? 1, 'model');
+        a.castShadows = def.castShadows !== false;
+        this.assets.set(name, a);
+        return a;
+    }
+
+    generated(key, make) {
+        let a = this.assets.get(key);
+        if (!a) this.assets.set(key, a = new ModelAsset(key, make(), { enabled: false, ao: 0 }, 1, 'generated'));
+        return a;
+    }
+
+    addImport(name, mesh, imp) {
+        for (const [n, a] of this.assets) if (a.kind === 'import') { this.retired.push(a); this.assets.delete(n); }
+        const a = new ModelAsset(name, mesh, this.settings(imp), 1, 'import');
+        this.assets.set(name, a);
+        return a;
+    }
+
+    // parts -> builder. `array` repeats a part: copy k is placed by step^k (step = array pos / rot / scale)
+    build(def, b, M, depth) {
+        if (depth > 8) throw new Error('models nested too deep');
+        for (const part of def.parts || []) {
+            const arr = part.array || {}, n = arr.count || 1, step = m4.compose(arr.pos, arr.rot, arr.scale);
+            const local = m4.compose(part.pos, part.rot, part.scale);
+            let S = m4.identity();
+            for (let k = 0; k < n; k++) {
+                const PM = m4.mul(M, m4.mul(S, local));
+                if (part.shape === 'model') {
+                    const sub = this.assets.get(part.model);
+                    if (sub && sub.kind === 'import') b.addMesh(sub.mesh, PM);
+                    else if (this.defs[part.model]) this.build(this.defs[part.model], b, PM, depth + 1);
+                    else throw new Error(`unknown model "${part.model}"`);
+                } else {
+                    const shape = SHAPES[part.shape];
+                    if (!shape) throw new Error(`unknown shape "${part.shape}"`);
+                    b.add(shape({ ...part, seed: (part.seed ?? 1) + k * 17 }), this.material(part.mat), PM, part.color ? lin(part.color) : null);
+                }
+                S = m4.mul(S, step);
+            }
+        }
+    }
+}
+
+// ================================================================ loaders (dropped files; `files` maps lower-case names to Files)
+function computeNormals(p, idx) {
+    const n = new Float32Array(p.length);
+    for (let i = 0; i < idx.length; i += 3) {
+        const a = idx[i] * 3, b = idx[i + 1] * 3, c = idx[i + 2] * 3;
+        const fn = v3.cross([p[b] - p[a], p[b + 1] - p[a + 1], p[b + 2] - p[a + 2]], [p[c] - p[a], p[c + 1] - p[a + 1], p[c + 2] - p[a + 2]]);
+        for (const k of [a, b, c]) { n[k] += fn[0]; n[k + 1] += fn[1]; n[k + 2] += fn[2]; }
+    }
+    for (let i = 0; i < n.length; i += 3) { const l = Math.hypot(n[i], n[i + 1], n[i + 2]) || 1; n[i] /= l; n[i + 1] /= l; n[i + 2] /= l; }
+    return n;
+}
+
+const GltfLoader = {
+    async load(file, files) {
+        const buf = await file.arrayBuffer(), dv = new DataView(buf);
+        let json, bin = null;
+        if (buf.byteLength >= 12 && dv.getUint32(0, true) === 0x46546C67) {            // 'glTF'
+            for (let off = 12; off + 8 <= buf.byteLength;) {
+                const len = dv.getUint32(off, true), type = dv.getUint32(off + 4, true);
+                if (type === 0x4E4F534A) json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, off + 8, len)));
+                else if (type === 0x004E4942) bin = buf.slice(off + 8, off + 8 + len);
+                off += 8 + len;
+            }
+        } else json = JSON.parse(new TextDecoder().decode(buf));
+        const bad = (json.extensionsRequired || []).filter(e => !['KHR_materials_unlit', 'KHR_texture_transform'].includes(e));
+        if (bad.length) throw new Error('unsupported glTF extension: ' + bad.join(', '));
+
+        const fetchUri = async uri => {
+            if (uri.startsWith('data:')) {
+                const s = atob(uri.slice(uri.indexOf(',') + 1)), a = new Uint8Array(s.length);
+                for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
+                return a.buffer;
+            }
+            const f = files.get(basename(decodeURIComponent(uri)).toLowerCase());
+            if (!f) throw new Error(`missing "${uri}": drop it together with the .gltf`);
+            return f.arrayBuffer();
+        };
+        const buffers = await Promise.all((json.buffers || []).map(b => (b.uri === undefined ? bin : fetchUri(b.uri))));
+        const images = [];
+        const image = async i => {
+            if (images[i] === undefined) {
+                const im = json.images[i];
+                let blob;
+                if (im.bufferView !== undefined) {
+                    const bv = json.bufferViews[im.bufferView];
+                    blob = new Blob([new Uint8Array(buffers[bv.buffer], bv.byteOffset || 0, bv.byteLength)], { type: im.mimeType });
+                } else blob = new Blob([await fetchUri(im.uri)]);
+                images[i] = await createImageBitmap(blob);
+            }
+            return images[i];
+        };
+        const mats = await Promise.all((json.materials || []).map(async (m, i) => {
+            const pbr = m.pbrMetallicRoughness || {}, f = pbr.baseColorFactor || [1, 1, 1, 1];
+            let img = null;
+            if (pbr.baseColorTexture) {
+                const tx = json.textures[pbr.baseColorTexture.index], src = tx.source ?? tx.extensions?.EXT_texture_webp?.source;
+                if (src !== undefined) img = await image(src).catch(e => { console.warn('glTF image:', e); return null; });
+            }
+            const ef = m.emissiveFactor || [0, 0, 0], es = m.extensions?.KHR_materials_emissive_strength?.emissiveStrength ?? 1;
+            return new Material(m.name || `material ${i}`, {
+                color: f, alpha: f[3], image: img, doubleSided: !!m.doubleSided,
+                spec: lerp(0.08, 0.8, pbr.metallicFactor ?? 1), gloss: 1 - (pbr.roughnessFactor ?? 1),
+                emissive: ef.some(x => x > 0) ? { color: ef, linear: true, strength: es } : null,
+                alphaCutoff: m.alphaMode === 'MASK' ? (m.alphaCutoff ?? 0.5) : m.alphaMode === 'BLEND' ? 0.35 : 0,
+            });
+        }));
+        const defMat = new Material('glTF default', { color: [0.8, 0.8, 0.8] });
+
+        const COMP = { 5120: [1, 'getInt8', 127], 5121: [1, 'getUint8', 255], 5122: [2, 'getInt16', 32767], 5123: [2, 'getUint16', 65535], 5125: [4, 'getUint32', 1], 5126: [4, 'getFloat32', 1] };
+        const NUM = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+        const read = (ai, asIndex = false) => {
+            const a = json.accessors[ai], nc = NUM[a.type], out = asIndex ? new Uint32Array(a.count * nc) : new Float32Array(a.count * nc);
+            if (a.bufferView === undefined) return out;
+            const bv = json.bufferViews[a.bufferView], [size, get, max] = COMP[a.componentType];
+            const stride = bv.byteStride || size * nc, base = (bv.byteOffset || 0) + (a.byteOffset || 0), view = new DataView(buffers[bv.buffer]);
+            const norm = !asIndex && a.normalized && max > 1;
+            for (let i = 0; i < a.count; i++) for (let c = 0; c < nc; c++) {
+                const x = view[get](base + i * stride + c * size, true);
+                out[i * nc + c] = norm ? Math.max(x / max, -1) : x;
+            }
+            return out;
+        };
+
+        const b = new MeshBuilder();
+        const visit = (ni, parent) => {
+            const node = json.nodes[ni];
+            const local = node.matrix ? Float64Array.from(node.matrix) : m4.fromTRS(node.translation || [0, 0, 0], node.rotation || [0, 0, 0, 1], node.scale || [1, 1, 1]);
+            const M = m4.mul(parent, local);
+            if (node.mesh !== undefined) for (const prim of json.meshes[node.mesh].primitives) {
+                const at = prim.attributes;
+                if ((prim.mode ?? 4) !== 4 || at.POSITION === undefined) continue;
+                const p = read(at.POSITION), count = p.length / 3;
+                const idx = prim.indices !== undefined ? read(prim.indices, true) : Uint32Array.from({ length: count }, (_, i) => i);
+                const n = at.NORMAL !== undefined ? read(at.NORMAL) : computeNormals(p, idx);
+                const uv = at.TEXCOORD_0 !== undefined ? read(at.TEXCOORD_0) : new Float32Array(count * 2);
+                let col = null;
+                if (at.COLOR_0 !== undefined) {
+                    const c = read(at.COLOR_0), k = json.accessors[at.COLOR_0].type === 'VEC4' ? 4 : 3;
+                    col = new Float32Array(count * 3);
+                    for (let i = 0; i < count; i++) { col[i * 3] = c[i * k]; col[i * 3 + 1] = c[i * k + 1]; col[i * 3 + 2] = c[i * k + 2]; }
+                }
+                b.add({ p, n, uv, col, idx }, prim.material !== undefined ? mats[prim.material] : defMat, M);
+            }
+            for (const c of node.children || []) visit(c, M);
+        };
+        const roots = json.scenes ? json.scenes[json.scene ?? 0].nodes : (json.nodes || []).map((_, i) => i);
+        for (const n of roots) visit(n, m4.identity());
+        const mesh = b.finish();
+        if (!mesh.indices.length) throw new Error('no triangle meshes in the file');
+        return mesh;
+    },
+};
+
+const ObjLoader = {
+    async load(file, files) {
+        const text = await file.text(), P = [], T = [], N = [], mtl = {}, groups = new Map();
+        let cur = null;
+        const use = name => {
+            if (!groups.has(name)) groups.set(name, { keys: new Map(), p: [], n: [], uv: [], idx: [], pi: [], hasN: [] });
+            cur = groups.get(name);
+        };
+        use('default');
+        const ix = (s, len) => { const i = parseInt(s, 10); return i < 0 ? len + i : i - 1; };
+        for (const raw of text.split('\n')) {
+            const line = raw.trim();
+            if (!line || line[0] === '#') continue;
+            const t = line.split(/\s+/), k = t[0];
+            if (k === 'v') P.push(+t[1], +t[2], +t[3]);
+            else if (k === 'vt') T.push(+t[1], +(t[2] ?? 0));
+            else if (k === 'vn') N.push(+t[1], +t[2], +t[3]);
+            else if (k === 'usemtl') use(t.slice(1).join(' '));
+            else if (k === 'mtllib') {
+                const f = files.get(basename(t.slice(1).join(' ')).toLowerCase());
+                if (f) Object.assign(mtl, ObjLoader.parseMtl(await f.text()));
+            } else if (k === 'f') {
+                const ids = t.slice(1).map(tok => {
+                    let v = cur.keys.get(tok);
+                    if (v !== undefined) return v;
+                    const [a, bb, c] = tok.split('/'), vi = ix(a, P.length / 3), ti = bb ? ix(bb, T.length / 2) : -1, ni = c ? ix(c, N.length / 3) : -1;
+                    v = cur.p.length / 3;
+                    cur.p.push(P[vi * 3], P[vi * 3 + 1], P[vi * 3 + 2]);
+                    cur.uv.push(ti >= 0 ? T[ti * 2] : 0, ti >= 0 ? 1 - T[ti * 2 + 1] : 0);
+                    cur.n.push(ni >= 0 ? N[ni * 3] : 0, ni >= 0 ? N[ni * 3 + 1] : 0, ni >= 0 ? N[ni * 3 + 2] : 0);
+                    cur.pi.push(vi); cur.hasN.push(ni >= 0);
+                    cur.keys.set(tok, v);
+                    return v;
+                });
+                for (let i = 1; i + 1 < ids.length; i++) cur.idx.push(ids[0], ids[i], ids[i + 1]);
+            }
+        }
+        const b = new MeshBuilder();
+        for (const [name, g] of groups) {
+            if (!g.idx.length) continue;
+            if (g.hasN.some(h => !h)) {                                                    // smooth normals by position index
+                const acc = new Float32Array(P.length);
+                for (let i = 0; i < g.idx.length; i += 3) {
+                    const [a, c, e] = [g.idx[i], g.idx[i + 1], g.idx[i + 2]];
+                    const pa = [g.p[a * 3], g.p[a * 3 + 1], g.p[a * 3 + 2]];
+                    const fn = v3.cross(v3.sub([g.p[c * 3], g.p[c * 3 + 1], g.p[c * 3 + 2]], pa), v3.sub([g.p[e * 3], g.p[e * 3 + 1], g.p[e * 3 + 2]], pa));
+                    for (const v of [a, c, e]) for (let q = 0; q < 3; q++) acc[g.pi[v] * 3 + q] += fn[q];
+                }
+                g.hasN.forEach((h, v) => {
+                    if (h) return;
+                    const n = v3.norm([acc[g.pi[v] * 3], acc[g.pi[v] * 3 + 1], acc[g.pi[v] * 3 + 2]]);
+                    g.n[v * 3] = n[0]; g.n[v * 3 + 1] = n[1]; g.n[v * 3 + 2] = n[2];
+                });
+            }
+            const m = mtl[name] || {};
+            let img = null;
+            if (m.map) { const f = files.get(basename(m.map).toLowerCase()); if (f) img = await createImageBitmap(f).catch(() => null); }
+            b.add(g, new Material(name, { color: srgbToLinear(m.kd || [0.75, 0.75, 0.75]), image: img, alphaCutoff: m.map && m.d < 1 ? 0.5 : 0, doubleSided: true }));
+        }
+        const mesh = b.finish();
+        if (!mesh.indices.length) throw new Error('no faces in the .obj');
+        return mesh;
+    },
+    parseMtl(text) {
+        const out = {};
+        let cur = null;
+        for (const raw of text.split('\n')) {
+            const t = raw.trim().split(/\s+/);
+            if (t[0] === 'newmtl') out[t.slice(1).join(' ')] = cur = { d: 1 };
+            else if (!cur) continue;
+            else if (t[0] === 'Kd') cur.kd = [+t[1], +t[2], +t[3]];
+            else if (t[0] === 'map_Kd') cur.map = t[t.length - 1];
+            else if (t[0] === 'd') cur.d = +t[1];
+        }
+        return out;
+    },
+};
+
+// ================================================================ WGSL
+const WGSL_COMMON = /* wgsl */`
+struct Globals {
+    viewProj: mat4x4f,
+    camPos: vec4f,          // w: time
+    sunDir: vec4f,          // w: exposure
+    sunColor: vec4f,        // w: intensity
+    skyTop: vec4f,
+    skyHorizon: vec4f,
+    ambientSky: vec4f,
+    ambientGround: vec4f,   // w: ambient strength
+    fog: vec4f,             // w: density
+    planes: array<vec4f, 6>,
+    lod: vec4f,             // start distance (per 5 m of radius), fade band fraction, far, mode (0 auto, 1 mesh, 2 imposter)
+    flags: vec4f,           // frame blend, depth parallax, pixel depth offset, LOD tint
+    invViewProj: mat4x4f,
+    screen: vec4f,
+    light: vec4f,           // x: emission scale (lights on / off)
+    camFwd: vec4f,
+};
+@group(0) @binding(0) var<uniform> G: Globals;
+
+// Cascaded shadow maps. splits: far edge of each cascade (camera view depth); texel: world size of one
+// shadow texel per cascade; planes: 6 per cascade (caster culling); params: cascades, map size, tint, enabled
+struct Shadow { mats: array<mat4x4f, 4>, splits: vec4f, texel: vec4f, planes: array<vec4f, 24>, params: vec4f };
+@group(0) @binding(3) var<uniform> SH: Shadow;
+@group(0) @binding(4) var shadowMap: texture_depth_2d_array;
+@group(0) @binding(5) var shadowSampler: sampler_comparison;
+
+// The view a pass renders from: the camera (perspective, from eye) or a shadow cascade (orthographic, along dir)
+struct View { viewProj: mat4x4f, eye: vec4f, dir: vec4f };      // eye.w: 1 perspective, 0 orthographic; dir.w: 1 cheap (far cascades)
+@group(3) @binding(0) var<uniform> V: View;
+
+struct Inst { posScale: vec4f, rot: vec4f, extra: vec4f };
+
+fn qrot(q: vec4f, v: vec3f) -> vec3f {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+fn qconj(q: vec4f) -> vec4f { return vec4f(-q.xyz, q.w); }
+// interleaved gradient noise: the LOD cross-fade dither
+fn ign(p: vec2f) -> f32 { return fract(52.9829189 * fract(dot(p, vec2f(0.06711056, 0.00583715)))); }
+
+fn skyColor(rd: vec3f) -> vec3f {
+    let L = normalize(G.sunDir.xyz);
+    var c = mix(G.skyHorizon.rgb, G.skyTop.rgb, pow(clamp(rd.y, 0.0, 1.0), 0.45));
+    c = mix(c, G.fog.rgb, clamp(-rd.y * 6.0, 0.0, 1.0));
+    let s = max(dot(rd, L), 0.0);
+    return c + G.sunColor.rgb * (pow(s, 900.0) * 30.0 + pow(s, 12.0) * 0.18);
+}
+fn fogColor(rd: vec3f) -> vec3f {
+    let s = max(dot(rd, normalize(G.sunDir.xyz)), 0.0);
+    return G.fog.rgb + G.sunColor.rgb * pow(s, 10.0) * 0.12;
+}
+fn cascadeOf(wp: vec3f) -> u32 {
+    let depth = dot(wp - G.camPos.xyz, G.camFwd.xyz);
+    var c = 0u;
+    for (var i = 0u; i < 3u; i++) { if (depth > SH.splits[i]) { c = i + 1u; } }
+    return c;
+}
+// sun visibility at wp: normal-offset lookup in its cascade, 3 x 3 PCF, fading out at the shadow distance
+fn shadowAt(wp: vec3f, n: vec3f) -> f32 {
+    if (SH.params.w < 0.5) { return 1.0; }
+    let depth = dot(wp - G.camPos.xyz, G.camFwd.xyz);
+    let last = SH.splits[3];
+    if (depth > last) { return 1.0; }
+    let c = cascadeOf(wp);
+    let L = normalize(G.sunDir.xyz);
+    let t = SH.texel[c];
+    let p = wp + n * t * (1.0 + 2.0 * (1.0 - abs(dot(n, L)))) + L * t;
+    let lp = SH.mats[c] * vec4f(p, 1.0);
+    let uv = vec2f(lp.x * 0.5 + 0.5, 0.5 - lp.y * 0.5);
+    let ts = 1.0 / SH.params.y;
+    var sum = 0.0;
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            sum += textureSampleCompareLevel(shadowMap, shadowSampler, uv + vec2f(f32(x), f32(y)) * ts, i32(c), lp.z);
+        }
+    }
+    return mix(sum / 9.0, 1.0, smoothstep(last * 0.85, last, depth));
+}
+var<private> CASCADE_TINT: array<vec3f, 4> = array<vec3f, 4>(vec3f(1.0, 0.3, 0.3), vec3f(0.3, 1.0, 0.3), vec3f(0.3, 0.5, 1.0), vec3f(1.0, 0.9, 0.2));
+
+// Surface properties (what meshes read from materials and imposters from their atlases), lit by the
+// current lighting scenario. Nothing here is baked, so any lighting works with the same atlases.
+struct Surface { albedo: vec3f, n: vec3f, ao: f32, spec: f32, gloss: f32, wrap: f32, emissive: vec3f };
+fn shade(s: Surface, wp: vec3f) -> vec3f {
+    let L = normalize(G.sunDir.xyz);
+    let V = normalize(G.camPos.xyz - wp);
+    let ndl = dot(s.n, L);
+    let diff = max((ndl + s.wrap) / (1.0 + s.wrap), 0.0);
+    let e = exp2(s.gloss * 10.0 + 1.0);                                   // Blinn-Phong exponent 2..2048
+    let spec = s.spec * (e + 8.0) / 25.13 * pow(max(dot(s.n, normalize(L + V)), 0.0), e) * max(ndl, 0.0);
+    let sun = G.sunColor.rgb * G.sunColor.w * mix(0.6, 1.0, s.ao) * shadowAt(wp, s.n);
+    let hemi = mix(G.ambientGround.rgb, G.ambientSky.rgb, s.n.y * 0.5 + 0.5) * G.ambientGround.w * s.ao;
+    var c = s.albedo * (sun * diff + hemi) + sun * spec + s.emissive * G.light.x;
+    if (SH.params.z > 0.5 && SH.params.w > 0.5 && dot(wp - G.camPos.xyz, G.camFwd.xyz) < SH.splits[3]) {
+        c = mix(c, CASCADE_TINT[cascadeOf(wp)] * (0.2 + dot(c, vec3f(0.4))), 0.4);
+    }
+    return c;
+}
+fn aces(x: vec3f) -> vec3f { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3f(0.0), vec3f(1.0)); }
+fn present(c: vec3f) -> vec3f { return pow(aces(c * G.sunDir.w), vec3f(1.0 / 2.2)); }
+fn finish(c: vec3f, wp: vec3f) -> vec3f {
+    let v = wp - G.camPos.xyz;
+    let d = max(length(v), 1e-4);
+    return present(mix(c, fogColor(v / d), 1.0 - exp(-d * G.fog.w)));
+}
+`;
+
+const WGSL_SKY = WGSL_COMMON + /* wgsl */`
+struct SOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
+@vertex fn vs(@builtin(vertex_index) i: u32) -> SOut {
+    let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u)) * 2.0 - 1.0;
+    var o: SOut;
+    o.pos = vec4f(p, 0.0, 1.0);
+    o.ndc = p;
+    return o;
+}
+@fragment fn fs(v: SOut) -> @location(0) vec4f {
+    let w = G.invViewProj * vec4f(v.ndc, 0.5, 1.0);
+    return vec4f(present(skyColor(normalize(w.xyz / w.w - G.camPos.xyz))), 1.0);
+}
+`;
+
+// Meshes: instanced from the culled mesh list; extra.x is the LOD fade (1 = fully mesh)
+const WGSL_MESH = WGSL_COMMON + /* wgsl */`
+// params: alpha cutoff, wrap, uv scale, flip backface normals; surf: specular, gloss; emissive: linear, x strength
+struct Mat { color: vec4f, params: vec4f, surf: vec4f, emissive: vec4f };
+@group(0) @binding(1) var repSampler: sampler;
+@group(1) @binding(0) var<uniform> M: Mat;
+@group(1) @binding(1) var tex: texture_2d<f32>;
+@group(2) @binding(0) var<storage, read> insts: array<Inst>;
+
+struct VOut {
+    @builtin(position) pos: vec4f,
+    @location(0) wp: vec3f,
+    @location(1) n: vec3f,
+    @location(2) uv: vec2f,
+    @location(3) col: vec3f,
+    @location(4) @interpolate(flat) fade: f32,
+    @location(5) ao: f32,
+};
+@vertex fn vs(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) uv: vec2f, @location(3) col: vec3f, @location(4) ao: f32,
+              @builtin(instance_index) ii: u32) -> VOut {
+    let I = insts[ii];
+    let wp = I.posScale.xyz + qrot(I.rot, p * I.posScale.w);
+    var o: VOut;
+    o.pos = V.viewProj * vec4f(wp, 1.0);
+    o.wp = wp;
+    o.n = qrot(I.rot, n);
+    o.uv = uv * M.params.z;
+    o.col = col;
+    o.fade = I.extra.x;
+    o.ao = ao;
+    return o;
+}
+@fragment fn fs(v: VOut, @builtin(front_facing) ff: bool) -> @location(0) vec4f {
+    let t = textureSample(tex, repSampler, v.uv);
+    let a = t.a * M.color.a;
+    // alpha to coverage, sharpened to about one pixel: antialiased cutout edges without sorting
+    let cover = select(1.0, (a - M.params.x) / max(fwidth(a), 1e-4) + 0.5, M.params.x > 0.0);
+    if (cover <= 0.0 || ign(v.pos.xy) >= v.fade) { discard; }
+    var n = normalize(v.n);
+    if (!ff && M.params.w > 0.5) { n = -n; }
+    var c = shade(Surface(t.rgb * v.col * M.color.rgb, n, v.ao, M.surf.x, M.surf.y, M.params.y, M.emissive.rgb), v.wp);
+    if (G.flags.w > 0.5) { c = mix(c, vec3f(0.15, 0.9, 0.25) * (0.3 + dot(c, vec3f(0.5))), 0.55); }
+    return vec4f(finish(c, v.wp), clamp(cover, 0.0, 1.0));
+}
+// shadow caster: depth only, alpha-tested
+@fragment fn fsShadow(v: VOut) {
+    if (textureSample(tex, repSampler, v.uv).a * M.color.a < M.params.x) { discard; }
+}
+`;
+
+// Bake: one orthographic frame of the atlas. Writes the unlit surface only (a small G-buffer): albedo +
+// coverage, object-space normal + depth, AO / specular / gloss / translucency and (if any) emission, into
+// 4x MSAA targets whose resolve gives values premultiplied by coverage. fsDepth: the AO bake's depth pass.
+const WGSL_BAKE = /* wgsl */`
+struct Bake { viewProj: mat4x4f, dir: vec4f, center: vec4f };     // dir: frame direction, 1 / radius
+struct Mat { color: vec4f, params: vec4f, surf: vec4f, emissive: vec4f };
+@group(0) @binding(0) var<uniform> B: Bake;
+@group(0) @binding(1) var smp: sampler;
+@group(1) @binding(0) var<uniform> M: Mat;
+@group(1) @binding(1) var tex: texture_2d<f32>;
+
+struct VOut { @builtin(position) pos: vec4f, @location(0) lp: vec3f, @location(1) n: vec3f, @location(2) uv: vec2f, @location(3) col: vec3f, @location(4) ao: f32 };
+@vertex fn vs(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) uv: vec2f, @location(3) col: vec3f, @location(4) ao: f32) -> VOut {
+    var o: VOut;
+    o.ao = ao;
+    o.pos = B.viewProj * vec4f(p, 1.0);
+    o.lp = p;
+    o.n = n;
+    o.uv = uv * M.params.z;
+    o.col = col;
+    return o;
+}
+struct FOut { @location(0) albedo: vec4f, @location(1) normal: vec4f, @location(2) surface: vec4f, @location(3) emissive: vec4f };
+@fragment fn fsDepth(v: VOut) {
+    let t = textureSample(tex, smp, v.uv);
+    if (t.a * M.color.a < M.params.x) { discard; }
+}
+@fragment fn fs(v: VOut, @builtin(front_facing) ff: bool) -> FOut {
+    let t = textureSample(tex, smp, v.uv);
+    if (t.a * M.color.a < M.params.x) { discard; }
+    var n = normalize(v.n);
+    if (!ff && M.params.w > 0.5) { n = -n; }
+    let depth = dot(v.lp - B.center.xyz, B.dir.xyz) * B.dir.w;          // -1..1, toward the viewer
+    var o: FOut;
+    o.albedo = vec4f(t.rgb * v.col * M.color.rgb, 1.0);
+    o.normal = vec4f(n * 0.5 + 0.5, depth * 0.5 + 0.5);
+    o.surface = vec4f(v.ao, M.surf.x, M.surf.y, M.params.y);
+    o.emissive = vec4f(M.emissive.rgb / ${EMISSIVE_RANGE}.0, 1.0);
+    return o;
+}
+`;
+
+// Per-vertex ambient occlusion: the model's depth seen from AO_DIRS directions around it; a vertex sees a
+// direction if nothing is in front of it there. Cosine-weighted around its normal. Geometry only, no light.
+const WGSL_AO = /* wgsl */`
+struct Frame { viewProj: mat4x4f, dir: vec4f, center: vec4f, pad: array<vec4f, 10> };
+struct Params { count: u32, dirs: u32, bias: f32, strength: f32 };
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read> verts: array<f32>;
+@group(0) @binding(2) var<storage, read> frames: array<Frame>;
+@group(0) @binding(3) var depths: texture_depth_2d_array;
+@group(0) @binding(4) var<storage, read_write> ao: array<f32>;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id: vec3u) {
+    let i = id.x;
+    if (i >= P.count) { return; }
+    let o = i * ${VF}u;
+    let n = normalize(vec3f(verts[o + 3u], verts[o + 4u], verts[o + 5u]));
+    let p = vec3f(verts[o], verts[o + 1u], verts[o + 2u]) + n * P.bias;
+    let dims = vec2f(textureDimensions(depths));
+    var seen = 0.0;
+    var total = 0.0;
+    for (var k = 0u; k < P.dirs; k++) {
+        let F = frames[k];
+        let w = max(dot(n, F.dir.xyz), 0.0);
+        if (w <= 0.0) { continue; }
+        total += w;
+        let cp = F.viewProj * vec4f(p, 1.0);
+        let px = vec2i(clamp(vec2f(cp.x * 0.5 + 0.5, 0.5 - cp.y * 0.5) * dims, vec2f(0.0), dims - 1.0));
+        if (cp.z <= textureLoad(depths, px, i32(k), 0) + P.bias * F.dir.w) { seen += w; }
+    }
+    ao[i] = mix(1.0, select(1.0, seen / total, total > 0.0), P.strength);
+}
+`;
+
+const WGSL_MIP = /* wgsl */`
+@group(0) @binding(0) var src: texture_2d<f32>;
+@group(0) @binding(1) var smp: sampler;
+struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@vertex fn vs(@builtin(vertex_index) i: u32) -> VO {
+    let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+    var o: VO;
+    o.pos = vec4f(p * 2.0 - 1.0, 0.0, 1.0);
+    o.uv = vec2f(p.x, 1.0 - p.y);
+    return o;
+}
+@fragment fn fs(v: VO) -> @location(0) vec4f { return textureSampleLevel(src, smp, v.uv, 0.0); }
+`;
+
+// Cull: per instance, the LOD fade from its camera distance, then
+//   - camera frustum + far: the mesh list and / or the imposter list (both inside the fade band, where the
+//     two dither complementary pixels)
+//   - each shadow cascade's light box: that cascade's caster list, mesh or imposter by the same LOD (hard
+//     switch at the middle of the band), whether or not the camera sees the instance
+// List k of each output buffer starts at k * P.seg. The instance counts go straight into the indirect
+// args (reset from a template every frame): the imposter draw's instanceCount counts imposters, the first
+// submesh's counts meshes and the other submeshes follow it with atomicMax. No copies, no clears.
+const WGSL_CULL = WGSL_COMMON + /* wgsl */`
+struct Params { count: u32, hasImp: u32, radius: f32, lodScale: f32, center: vec4f, seg: u32, casts: u32, setWords: u32, subs: u32 };
+@group(1) @binding(0) var<uniform> P: Params;
+@group(1) @binding(1) var<storage, read> src: array<Inst>;
+@group(1) @binding(2) var<storage, read_write> meshOut: array<Inst>;
+@group(1) @binding(3) var<storage, read_write> impOut: array<Inst>;
+@group(1) @binding(4) var<storage, read_write> args: array<atomic<u32>>;
+
+fn push(list: u32, mesh: bool, o: Inst) {
+    let base = list * P.setWords;
+    if (!mesh) {
+        impOut[list * P.seg + atomicAdd(&args[base + 1u], 1u)] = o;
+    } else if (P.subs > 0u) {
+        let k = atomicAdd(&args[base + 5u], 1u);
+        meshOut[list * P.seg + k] = o;
+        for (var i = 1u; i < P.subs; i++) { atomicMax(&args[base + 5u + 5u * i], k + 1u); }
+    }
+}
+
+@compute @workgroup_size(64) fn cull(@builtin(global_invocation_id) id: vec3u) {
+    let i = id.x;
+    if (i >= P.count) { return; }
+    let I = src[i];
+    let s = I.posScale.w;
+    let c = I.posScale.xyz + qrot(I.rot, P.center.xyz * s);
+    let r = P.radius * s;
+    let d = distance(c, G.camPos.xyz);
+    var mode = u32(G.lod.w + 0.5);
+    if (I.extra.x > 0.5) { mode = u32(I.extra.x + 0.5); }
+    if (P.hasImp == 0u) { mode = 1u; }
+    var f = 1.0;
+    if (mode == 2u) {
+        f = 0.0;
+    } else if (mode == 0u) {
+        let start = G.lod.x * P.lodScale * s;
+        f = 1.0 - clamp((d - start) / max(start * G.lod.y, 1e-3), 0.0, 1.0);
+    }
+    var o = I;
+    o.extra.x = f;
+
+    var seen = d - r <= G.lod.z;
+    for (var k = 0; k < 6; k++) {
+        let pl = G.planes[k];
+        if (dot(pl.xyz, c) + pl.w < -r) { seen = false; }
+    }
+    if (seen) {
+        if (f > 0.0) { push(0u, true, o); }
+        if (f < 1.0) { push(0u, false, o); }
+    }
+
+    if (P.casts == 0u || SH.params.w < 0.5) { return; }
+    for (var cs = 0u; cs < u32(SH.params.x); cs++) {
+        var inside = true;
+        for (var k = 0u; k < 6u; k++) {
+            let pl = SH.planes[cs * 6u + k];
+            if (dot(pl.xyz, c) + pl.w < -r) { inside = false; }
+        }
+        if (inside) { push(cs + 1u, f >= 0.5, o); }
+    }
+}
+`;
+
+// Imposter: a quad facing the view that covers the bounding sphere. The vertex stage picks the three atlas
+// frames around the view direction (in the instance's own space) and their weights; the fragment stage
+// intersects the pixel's view ray with each frame's plane, refines the hit with the baked depth
+// (parallax), samples and blends. fs lights the result and writes the reconstructed depth; fsShadow (from
+// a cascade's orthographic light view) writes only that depth, so imposters cast their real shape.
+const WGSL_IMPOSTER = WGSL_COMMON + /* wgsl */`
+struct Imp { bound: vec4f, grid: vec4f };       // bound: centre, radius; grid: frames per side, full, 1 / frames, uv inset
+@group(0) @binding(2) var clampSampler: sampler;
+@group(1) @binding(0) var<uniform> A: Imp;
+@group(1) @binding(1) var albedoTex: texture_2d<f32>;
+@group(1) @binding(2) var normalTex: texture_2d<f32>;
+@group(1) @binding(3) var surfaceTex: texture_2d<f32>;
+@group(1) @binding(4) var emissiveTex: texture_2d<f32>;        // 1 x 1 black when the model has no emission
+@group(2) @binding(0) var<storage, read> insts: array<Inst>;
+
+var<private> QUAD: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0));
+
+fn signNZ(v: vec2f) -> vec2f { return select(vec2f(-1.0), vec2f(1.0), v >= vec2f(0.0)); }
+fn octEncode(d: vec3f, full: bool) -> vec2f {
+    if (full) {
+        let n = d / (abs(d.x) + abs(d.y) + abs(d.z));
+        var p = n.xz;
+        if (n.y < 0.0) { p = (1.0 - abs(p.yx)) * signNZ(p); }
+        return p;
+    }
+    let h = vec3f(d.x, max(d.y, 0.0), d.z);
+    let n = h / max(abs(h.x) + abs(h.y) + abs(h.z), 1e-6);
+    return vec2f(n.x + n.z, n.z - n.x);
+}
+fn octDecode(p: vec2f, full: bool) -> vec3f {
+    var n: vec3f;
+    if (full) {
+        n = vec3f(p.x, 1.0 - abs(p.x) - abs(p.y), p.y);
+        if (n.y < 0.0) {
+            let s = signNZ(n.xz);
+            n = vec3f((1.0 - abs(p.y)) * s.x, n.y, (1.0 - abs(p.x)) * s.y);
+        }
+    } else {
+        let o = vec2f(p.x - p.y, p.x + p.y) * 0.5;
+        n = vec3f(o.x, 1.0 - abs(o.x) - abs(o.y), o.y);
+    }
+    return normalize(n);
+}
+fn frameRight(d: vec3f) -> vec3f {
+    if (abs(d.y) > 0.9999) { return vec3f(1.0, 0.0, 0.0); }
+    return normalize(vec3f(d.z, 0.0, -d.x));
+}
+fn cellDir(c: vec2f) -> vec3f { return octDecode(c / (A.grid.x - 1.0) * 2.0 - 1.0, A.grid.y > 0.5); }
+fn atlasUV(c: vec2f, uv: vec2f) -> vec2f { return (c + clamp(uv, vec2f(A.grid.w), vec2f(1.0 - A.grid.w))) * A.grid.z; }
+
+struct VOut {
+    @builtin(position) pos: vec4f,
+    @location(0) wp: vec3f,
+    @location(1) q: vec2f,
+    @location(2) @interpolate(flat) cellsA: vec4f,      // frames 0 and 1 (x, y)
+    @location(3) @interpolate(flat) cellsB: vec4f,      // frame 2 (x, y), fade, world radius
+    @location(4) @interpolate(flat) w: vec3f,
+    @location(5) @interpolate(flat) center: vec3f,
+    @location(6) @interpolate(flat) rot: vec4f,
+};
+
+@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+    let I = insts[ii];
+    let s = I.posScale.w;
+    let c = I.posScale.xyz + qrot(I.rot, A.bound.xyz * s);
+    let R = A.bound.w * s;
+    var v = -V.dir.xyz;                 // toward the viewer
+    var ext = R;                        // orthographic: the silhouette is the sphere's radius
+    if (V.eye.w > 0.5) {
+        let toCam = V.eye.xyz - c;
+        let dist = max(length(toCam), 1e-4);
+        v = toCam / dist;
+        // the sphere's silhouette cone, cut by the plane through its centre
+        ext = select(R * 4.0, R * dist / sqrt(max(dist * dist - R * R, 1e-6)), dist > R * 1.05);
+    }
+    var right = vec3f(1.0, 0.0, 0.0);
+    if (abs(v.y) < 0.9999) { right = normalize(cross(vec3f(0.0, 1.0, 0.0), v)); }
+    let up = cross(v, right);
+    let q = QUAD[vi];
+    var o: VOut;
+    o.wp = c + (right * q.x + up * q.y) * ext;
+    o.pos = V.viewProj * vec4f(o.wp, 1.0);
+    o.q = q;
+    let N = A.grid.x;
+    let g = clamp((octEncode(qrot(qconj(I.rot), v), A.grid.y > 0.5) * 0.5 + 0.5) * (N - 1.0), vec2f(0.0), vec2f(N - 1.0));
+    if (G.flags.x > 0.5 && V.dir.w < 0.5) {
+        let b = min(floor(g), vec2f(N - 2.0));
+        let f = g - b;
+        if (f.x > f.y) {
+            o.cellsA = vec4f(b, b + vec2f(1.0, 0.0));
+            o.w = vec3f(1.0 - f.x, f.x - f.y, f.y);
+        } else {
+            o.cellsA = vec4f(b, b + vec2f(0.0, 1.0));
+            o.w = vec3f(1.0 - f.y, f.y - f.x, f.x);
+        }
+        o.cellsB = vec4f(b + 1.0, I.extra.x, R);
+    } else {
+        let r = round(g);
+        o.cellsA = vec4f(r, r);
+        o.cellsB = vec4f(r, I.extra.x, R);
+        o.w = vec3f(1.0, 0.0, 0.0);
+    }
+    o.center = c;
+    o.rot = I.rot;
+    return o;
+}
+
+// the blended surface along this pixel's view ray, premultiplied by coverage (albedo.a); full: all layers
+struct Recon { albedo: vec4f, normal: vec4f, surface: vec4f, emissive: vec3f, hit: vec3f };
+fn reconstruct(v: VOut, full: bool) -> Recon {
+    let size = v.cellsB.w;
+    let iq = qconj(v.rot);
+    // the view ray in the object's space, in units of the bounding radius
+    var ro = qrot(iq, v.wp - v.center) / size;
+    var rd = qrot(iq, V.dir.xyz);
+    if (V.eye.w > 0.5) {
+        ro = qrot(iq, V.eye.xyz - v.center) / size;
+        rd = normalize(qrot(iq, v.wp - V.eye.xyz));
+    }
+    var cells = array<vec2f, 3>(v.cellsA.xy, v.cellsA.zw, v.cellsB.xy);
+    var ws = v.w;
+    var o = Recon(vec4f(0.0), vec4f(0.0), vec4f(0.0), vec3f(0.0), vec3f(0.0));
+    for (var k = 0; k < 3; k++) {
+        let cell = cells[k];
+        let d = cellDir(cell);
+        let r = frameRight(d);
+        let u = cross(d, r);
+        let den = min(dot(rd, d), -1e-4);
+        var h = ro + rd * (-dot(ro, d) / den);                   // hit on the frame's plane through the centre
+        let uv0 = vec2f(dot(h, r), -dot(h, u)) * 0.5 + 0.5;
+        let gx = dpdx(uv0) * A.grid.z;
+        let gy = dpdy(uv0) * A.grid.z;
+        var uv = uv0;
+        if (G.flags.y > 0.5) {
+            let a0 = textureSampleGrad(albedoTex, clampSampler, atlasUV(cell, uv0), gx, gy).a;
+            let d0 = textureSampleGrad(normalTex, clampSampler, atlasUV(cell, uv0), gx, gy).a;
+            if (a0 > 0.02) {                                        // move to the baked surface depth and reproject
+                h = ro + rd * ((d0 / a0 * 2.0 - 1.0 - dot(ro, d)) / den);
+                uv = vec2f(dot(h, r), -dot(h, u)) * 0.5 + 0.5;
+            }
+        }
+        let inside = select(0.0, 1.0, all(uv >= vec2f(0.0)) && all(uv <= vec2f(1.0)));
+        let auv = atlasUV(cell, uv);
+        let wk = ws[k] * inside;
+        let ca = textureSampleGrad(albedoTex, clampSampler, auv, gx, gy);
+        o.albedo += ca * wk;
+        o.normal += textureSampleGrad(normalTex, clampSampler, auv, gx, gy) * wk;
+        o.hit += h * (ca.a * wk);
+        if (full) {
+            o.surface += textureSampleGrad(surfaceTex, clampSampler, auv, gx, gy) * wk;
+            o.emissive += textureSampleGrad(emissiveTex, clampSampler, auv, gx, gy).rgb * wk;
+        }
+    }
+    return o;
+}
+
+struct FOut { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 };
+
+@fragment fn fs(v: VOut) -> FOut {
+    let R = reconstruct(v, true);
+    let a = R.albedo.a;
+    let cover = (a - 0.5) / max(fwidth(a), 1e-4) + 0.5;           // sharpened alpha to coverage
+    var out: FOut;
+    out.depth = v.pos.z;
+    let edge = G.flags.w > 0.5 && max(abs(v.q.x), abs(v.q.y)) > 0.985;
+    if (edge && cover < 1.0) {                                      // LOD tint: outline the billboard
+        out.color = vec4f(0.35, 0.6, 1.0, 1.0);
+        return out;
+    }
+    if (cover <= 0.0 || a < 0.02 || ign(v.pos.xy) < v.cellsB.z) { discard; }
+    // premultiplied by coverage: divide by the blended coverage to get the surface back
+    let n = qrot(v.rot, normalize((R.normal.xyz / a) * 2.0 - 1.0));
+    let sf = R.surface / a;
+    let wp = v.center + qrot(v.rot, R.hit / a * v.cellsB.w);
+    var c = shade(Surface(R.albedo.rgb / a, n, sf.x, sf.y, sf.z, sf.w, R.emissive / a * ${EMISSIVE_RANGE}.0), wp);
+    if (G.flags.w > 0.5) { c = mix(c, vec3f(0.25, 0.45, 1.0) * (0.3 + dot(c, vec3f(0.5))), 0.55); }
+    out.color = vec4f(finish(c, wp), clamp(cover, 0.0, 1.0));
+    if (G.flags.z > 0.5) {
+        let cp = V.viewProj * vec4f(wp, 1.0);
+        out.depth = clamp(cp.z / cp.w, 0.0, 1.0);
+    }
+    return out;
+}
+
+// far-cascade caster: the nearest frame's coverage only, depth of the quad (no depth output keeps early-z)
+@fragment fn fsShadowCheap(v: VOut) {
+    let iq = qconj(v.rot);
+    let ro = qrot(iq, v.wp - v.center) / v.cellsB.w;
+    let rd = qrot(iq, V.dir.xyz);
+    let cell = v.cellsA.xy;
+    let d = cellDir(cell);
+    let r = frameRight(d);
+    let h = ro + rd * (-dot(ro, d) / min(dot(rd, d), -1e-4));
+    let uv = vec2f(dot(h, r), -dot(h, cross(d, r))) * 0.5 + 0.5;
+    let a = textureSampleGrad(albedoTex, clampSampler, atlasUV(cell, uv), dpdx(uv) * A.grid.z, dpdy(uv) * A.grid.z).a;
+    if (a < 0.5 || any(uv < vec2f(0.0)) || any(uv > vec2f(1.0))) { discard; }
+}
+
+// shadow caster: the reconstructed surface's depth in the cascade
+@fragment fn fsShadow(v: VOut) -> @builtin(frag_depth) f32 {
+    let R = reconstruct(v, false);
+    let a = R.albedo.a;
+    if (a < 0.5) { discard; }
+    let cp = V.viewProj * vec4f(v.center + qrot(v.rot, R.hit / a * v.cellsB.w), 1.0);
+    return clamp(cp.z / cp.w, 0.0, 1.0);
+}
+`;
+
+// Atlas overlay: the focused model's atlas with its frame grid; the three frames in use are outlined
+const WGSL_OVERLAY = /* wgsl */`
+struct Ov { rect: vec4f, c01: vec4f, c2: vec4f, w: vec4f };    // c2: frame 2 (x, y), frames per side, view
+@group(0) @binding(0) var<uniform> O: Ov;
+@group(0) @binding(1) var smp: sampler;
+@group(0) @binding(2) var ta: texture_2d<f32>;
+@group(0) @binding(3) var tn: texture_2d<f32>;
+@group(0) @binding(4) var ts: texture_2d<f32>;
+@group(0) @binding(5) var te: texture_2d<f32>;
+var<private> Q01: array<vec2f, 6> = array<vec2f, 6>(vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0), vec2f(0.0, 0.0), vec2f(1.0, 1.0), vec2f(0.0, 1.0));
+struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@vertex fn vs(@builtin(vertex_index) i: u32) -> VO {
+    let c = Q01[i];
+    var o: VO;
+    o.pos = vec4f(mix(O.rect.xy, O.rect.zw, c), 0.0, 1.0);
+    o.uv = c;
+    return o;
+}
+@fragment fn fs(v: VO) -> @location(0) vec4f {
+    let a = textureSample(ta, smp, v.uv);
+    let n = textureSample(tn, smp, v.uv);
+    let sf = textureSample(ts, smp, v.uv);
+    let em = textureSample(te, smp, v.uv);
+    let g = v.uv * O.c2.z;
+    let fw = max(fwidth(g), vec2f(1e-5));
+    let chk = select(0.13, 0.19, (i32(floor(v.uv.x * 48.0)) + i32(floor(v.uv.y * 48.0))) % 2 == 0);
+    let bg = vec3f(chk) * (1.0 - a.a);
+    var c: vec3f;
+    if (O.c2.w < 1.5) { c = pow(a.rgb, vec3f(1.0 / 2.2)) + bg; }
+    else if (O.c2.w < 2.5) { c = n.rgb + bg; }
+    else if (O.c2.w < 3.5) { c = vec3f(n.a) + bg; }
+    else if (O.c2.w < 4.5) { c = vec3f(sf.r) + bg; }
+    else if (O.c2.w < 5.5) { c = sf.gba + bg; }
+    else { c = pow(em.rgb, vec3f(1.0 / 2.2)) + bg; }
+    let e = min(fract(g), 1.0 - fract(g)) / fw;                   // pixels to the cell edge
+    c = mix(c, vec3f(0.43, 0.86, 1.0), (1.0 - clamp(min(e.x, e.y), 0.0, 1.0)) * 0.35);
+    let cell = floor(g);
+    var hl = 0.0;
+    if (all(cell == O.c01.xy)) { hl = max(hl, O.w.x); }
+    if (all(cell == O.c01.zw)) { hl = max(hl, O.w.y); }
+    if (all(cell == O.c2.xy)) { hl = max(hl, O.w.z); }
+    let border = 1.0 - clamp(min(e.x, e.y) - 1.5, 0.0, 1.0);
+    c = mix(c, vec3f(1.0, 0.55, 0.1), step(0.001, hl) * (border * (0.5 + 0.5 * hl) + 0.15 * hl));
+    return vec4f(c, 1.0);
+}
+`;
+
+// ================================================================ GPU mesh + imposter atlas + baker
+// orthographic view of the bounding sphere (centre c, radius R) looking along -dir, written as one 256-byte
+// slot: viewProj (depth 0..1 front to back), dir + 1 / R, centre
+function orthoFrame(out, o, dir, c, R) {
+    const rt = Oct.right(dir), up = v3.cross(dir, rt);
+    out.set([rt[0] / R, up[0] / R, -dir[0] / (2 * R), 0, rt[1] / R, up[1] / R, -dir[1] / (2 * R), 0, rt[2] / R, up[2] / R, -dir[2] / (2 * R), 0,
+        -v3.dot(rt, c) / R, -v3.dot(up, c) / R, 0.5 + v3.dot(dir, c) / (2 * R), 1], o);
+    out.set([...dir, 1 / R, ...c, 0], o + 16);
+}
+
+// GpuMesh: vertex / index buffers plus a per-vertex ambient occlusion buffer (1 where not baked)
+class GpuMesh {
+    constructor(r, mesh, ao = 0) {
+        const d = r.device, U = GPUBufferUsage, n = Math.max(1, mesh.vertices.length / VF);
+        this.vbuf = d.createBuffer({ size: Math.max(16, mesh.vertices.byteLength), usage: U.VERTEX | U.STORAGE | U.COPY_DST });
+        this.ibuf = d.createBuffer({ size: Math.max(16, mesh.indices.byteLength), usage: U.INDEX | U.COPY_DST });
+        this.aoBuf = d.createBuffer({ size: Math.max(16, n * 4), usage: U.VERTEX | U.STORAGE | U.COPY_DST });
+        d.queue.writeBuffer(this.vbuf, 0, mesh.vertices);
+        d.queue.writeBuffer(this.ibuf, 0, mesh.indices);
+        d.queue.writeBuffer(this.aoBuf, 0, new Float32Array(n).fill(1));
+        if (ao > 0 && mesh.indices.length) this.bakeAO(r, mesh, ao);
+    }
+
+    // AO_DIRS depth views of the model (Fibonacci sphere), then one compute pass tests every vertex against them
+    bakeAO(r, mesh, strength) {
+        const d = r.device, U = GPUBufferUsage, R = mesh.radius * 1.02, c = mesh.center, count = mesh.vertices.length / VF;
+        const data = new Float32Array(AO_DIRS * 64);
+        for (let k = 0; k < AO_DIRS; k++) {
+            const y = 1 - 2 * (k + 0.5) / AO_DIRS, rr = Math.sqrt(1 - y * y), phi = k * 2.399963;
+            orthoFrame(data, k * 64, [Math.cos(phi) * rr, y, Math.sin(phi) * rr], c, R);
+        }
+        const frames = d.createBuffer({ size: data.byteLength, usage: U.UNIFORM | U.STORAGE | U.COPY_DST });
+        d.queue.writeBuffer(frames, 0, data);
+        const params = d.createBuffer({ size: 16, usage: U.UNIFORM | U.COPY_DST }), pb = new ArrayBuffer(16);
+        new Uint32Array(pb, 0, 2).set([count, AO_DIRS]);
+        new Float32Array(pb, 8, 2).set([R * 0.01, strength]);
+        d.queue.writeBuffer(params, 0, pb);
+        const depth = d.createTexture({ size: [AO_RES, AO_RES, AO_DIRS], format: 'depth32float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+        const bg = d.createBindGroup({ layout: r.bakeBgl, entries: [{ binding: 0, resource: { buffer: frames, size: 96 } }, { binding: 1, resource: r.repSampler }] });
+        const enc = d.createCommandEncoder();
+        for (let k = 0; k < AO_DIRS; k++) {
+            const pass = enc.beginRenderPass({ colorAttachments: [], depthStencilAttachment: {
+                view: depth.createView({ dimension: '2d', baseArrayLayer: k, arrayLayerCount: 1 }), depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store',
+            } });
+            pass.setPipeline(r.aoDepthPipe);
+            pass.setVertexBuffer(0, this.vbuf);
+            pass.setVertexBuffer(1, this.aoBuf);
+            pass.setIndexBuffer(this.ibuf, 'uint32');
+            pass.setBindGroup(0, bg, [k * 256]);
+            for (const sm of mesh.submeshes) {
+                pass.setBindGroup(1, sm.material.bindGroup(r));
+                pass.drawIndexed(sm.count, 1, sm.first, 0, 0);
+            }
+            pass.end();
+        }
+        const cp = enc.beginComputePass();
+        cp.setPipeline(r.aoPipe);
+        cp.setBindGroup(0, d.createBindGroup({ layout: r.aoBgl, entries: [
+            { binding: 0, resource: { buffer: params } }, { binding: 1, resource: { buffer: this.vbuf } }, { binding: 2, resource: { buffer: frames } },
+            { binding: 3, resource: depth.createView({ dimension: '2d-array' }) }, { binding: 4, resource: { buffer: this.aoBuf } },
+        ] }));
+        cp.dispatchWorkgroups(Math.ceil(count / 64));
+        cp.end();
+        d.queue.submit([enc.finish()]);
+        d.queue.onSubmittedWorkDone().then(() => { depth.destroy(); frames.destroy(); params.destroy(); });
+    }
+
+    destroy() { this.vbuf.destroy(); this.ibuf.destroy(); this.aoBuf.destroy(); }
+}
+
+// The baked G-buffer layers: [name, format, mip pipeline]. `emissive` only for models with emissive materials.
+function atlasLayers(r, emissive) {
+    const l = [['albedo', ALBEDO_FORMAT, r.mipAlbedo], ['normal', NORMAL_FORMAT, r.mipNormal], ['surface', SURFACE_FORMAT, r.mipNormal]];
+    if (emissive) l.push(['emissive', EMISSIVE_FORMAT, r.mipAlbedo]);
+    return l;
+}
+
+class ImposterAtlas {
+    constructor(r, tex, info) {
+        Object.assign(this, info);      // grid, res, full, levels, center, radius, bakeMs, bytes
+        this.tex = tex;                 // albedo, normal, surface, emissive?
+        const d = r.device;
+        this.ub = d.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        d.queue.writeBuffer(this.ub, 0, new Float32Array([...this.center, this.radius, this.grid, this.full ? 1 : 0, 1 / this.grid, 1 / this.res]));
+        const views = [tex.albedo, tex.normal, tex.surface, tex.emissive || r.blackTexture].map(t => t.createView());
+        this.bg = d.createBindGroup({ layout: r.impBgl, entries: [{ binding: 0, resource: { buffer: this.ub } }, ...views.map((v, i) => ({ binding: i + 1, resource: v }))] });
+        this.overlayBG = d.createBindGroup({ layout: r.ovBgl, entries: [
+            { binding: 0, resource: { buffer: r.overlayBuf } }, { binding: 1, resource: r.clampSampler }, ...views.map((v, i) => ({ binding: i + 2, resource: v })),
+        ] });
+    }
+    get layers() { return Object.keys(this.tex).length; }
+    destroy() { for (const t of Object.values(this.tex)) t.destroy(); this.ub.destroy(); }
+}
+
+// mip levels whose cells stay whole texels (res divisible by 2^(levels-1)) and at least 8 px wide
+function atlasMipLevels(res) {
+    let l = 1;
+    while (l < 6 && res % (1 << l) === 0 && (res >> l) >= 8) l++;
+    return l;
+}
+
+// ImposterBaker: renders a model's unlit surface into an N x N octahedral atlas (one texture per G-buffer
+// layer). Each frame goes through small 4x MSAA targets, is resolved (premultiplied by coverage) and copied
+// into its cell; then the mip chains are built. Lighting is applied at runtime, so it never needs a rebake.
+class ImposterBaker {
+    constructor(r) { this.r = r; }
+
+    async bake(asset) {
+        const r = this.r, d = r.device, U = GPUTextureUsage, s = asset.settings, mesh = asset.mesh, gm = asset.gpu(r);
+        const N = s.grid, full = s.mode === 'full', maxDim = d.limits.maxTextureDimension2D;
+        let res = s.res;
+        while (N * res > maxDim && res > 16) res = Math.floor(res / 2);
+        const size = N * res, levels = atlasMipLevels(res), t0 = performance.now(), layers = atlasLayers(r, asset.emissive);
+        const tex = {}, ms = [], cells = [];
+        for (const [name, format] of layers) {
+            tex[name] = d.createTexture({ size: [size, size], format, mipLevelCount: levels, usage: U.TEXTURE_BINDING | U.RENDER_ATTACHMENT | U.COPY_DST });
+            ms.push(d.createTexture({ size: [res, res], format, sampleCount: MSAA, usage: U.RENDER_ATTACHMENT }));
+            cells.push(d.createTexture({ size: [res, res], format, usage: U.RENDER_ATTACHMENT | U.COPY_SRC }));
+        }
+        const msD = d.createTexture({ size: [res, res], format: BAKE_DEPTH_FORMAT, sampleCount: MSAA, usage: U.RENDER_ATTACHMENT });
+        const colorAttachments = layers.map((l, k) => ({ view: ms[k].createView(), resolveTarget: cells[k].createView(), clearValue: [0, 0, 0, 0], loadOp: 'clear', storeOp: 'discard' }));
+        const depthView = msD.createView();
+
+        const R = mesh.radius * 1.02, c = mesh.center, data = new Float32Array(N * N * 64);
+        for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) orthoFrame(data, (j * N + i) * 64, Oct.frameDir(i, j, N, full), c, R);
+        const ub = d.createBuffer({ size: data.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        d.queue.writeBuffer(ub, 0, data);
+        const bg = d.createBindGroup({ layout: r.bakeBgl, entries: [{ binding: 0, resource: { buffer: ub, size: 96 } }, { binding: 1, resource: r.repSampler }] });
+        const pipes = r.bakePipes[asset.emissive ? 1 : 0];
+
+        const enc = d.createCommandEncoder();
+        for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+            const pass = enc.beginRenderPass({ colorAttachments, depthStencilAttachment: { view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard' } });
+            pass.setVertexBuffer(0, gm.vbuf);
+            pass.setVertexBuffer(1, gm.aoBuf);
+            pass.setIndexBuffer(gm.ibuf, 'uint32');
+            pass.setBindGroup(0, bg, [(j * N + i) * 256]);
+            for (const sm of mesh.submeshes) {
+                pass.setPipeline(pipes[sm.material.doubleSided ? 1 : 0]);
+                pass.setBindGroup(1, sm.material.bindGroup(r));
+                pass.drawIndexed(sm.count, 1, sm.first, 0, 0);
+            }
+            pass.end();
+            layers.forEach(([name], k) => enc.copyTextureToTexture({ texture: cells[k] }, { texture: tex[name], origin: [i * res, j * res] }, [res, res]));
+        }
+        for (const [name, , pipe] of layers) this.mips(enc, tex[name], pipe, levels);
+        d.queue.submit([enc.finish()]);
+        await d.queue.onSubmittedWorkDone();
+        for (const t of [...ms, ...cells, msD]) t.destroy();
+        ub.destroy();
+        let bytes = 0;
+        for (let l = 0; l < levels; l++) bytes += (size >> l) * (size >> l) * 4 * layers.length;
+        return new ImposterAtlas(r, tex, { grid: N, res, full, levels, center: c, radius: R, bytes, bakeMs: performance.now() - t0 });
+    }
+
+    // box-filter mip chain; premultiplied values average correctly
+    mips(enc, tex, pipe, levels) {
+        const d = this.r.device;
+        for (let l = 1; l < levels; l++) {
+            const bg = d.createBindGroup({ layout: this.r.mipBgl, entries: [
+                { binding: 0, resource: tex.createView({ baseMipLevel: l - 1, mipLevelCount: 1 }) }, { binding: 1, resource: this.r.clampSampler },
+            ] });
+            const pass = enc.beginRenderPass({ colorAttachments: [{ view: tex.createView({ baseMipLevel: l, mipLevelCount: 1 }), loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
+            pass.setPipeline(pipe);
+            pass.setBindGroup(0, bg);
+            pass.draw(3);
+            pass.end();
+        }
+    }
+}
+
+// ================================================================ renderer
+class Renderer {
+    constructor() {
+        this.onError = msg => console.error(msg);
+        this.globals = new Float32Array(GLOBAL_FLOATS);
+        this.patterns = new Map();
+        this.readBuf = null;
+        this.readPending = false;
+        this.queryPending = false;
+        this.camPlanes = [];
+        this.cascadePlanes = [];
+        this.lastRead = -1;
+    }
+
+    async init(canvas) {
+        if (!navigator.gpu) throw new Error('navigator.gpu is undefined: WebGPU is not enabled in this browser.');
+        const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+        if (!adapter) throw new Error('No WebGPU adapter available.');
+        // GPU pass timings for the HUD where the browser allows them
+        const timing = adapter.features.has('timestamp-query');
+        const device = this.device = await adapter.requestDevice({ requiredFeatures: timing ? ['timestamp-query'] : [] });
+        if (timing) {
+            this.querySet = device.createQuerySet({ type: 'timestamp', count: 12 });
+            this.queryBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+            this.queryRead = device.createBuffer({ size: 96, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+            this.gpuTimes = null;               // { cull, shadow: [4], main } in ms
+        }
+        device.lost.then(info => { if (info.reason !== 'destroyed') this.onError('WebGPU device lost: ' + info.message); });
+        device.addEventListener('uncapturederror', e => console.error('WebGPU:', e.error.message));
+        this.canvas = canvas;
+        this.ctx = canvas.getContext('webgpu');
+        this.format = navigator.gpu.getPreferredCanvasFormat();
+        this.ctx.configure({ device, format: this.format, alphaMode: 'opaque' });
+
+        const U = GPUBufferUsage, S = GPUShaderStage;
+        this.globalBuf = device.createBuffer({ size: GLOBAL_FLOATS * 4, usage: U.UNIFORM | U.COPY_DST });
+        this.overlayBuf = device.createBuffer({ size: 64, usage: U.UNIFORM | U.COPY_DST });
+        this.repSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat', maxAnisotropy: 8 });
+        this.clampSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear' });
+        this.whiteTexture = device.createTexture({ size: [1, 1], format: 'rgba8unorm-srgb', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+        device.queue.writeTexture({ texture: this.whiteTexture }, new Uint8Array([255, 255, 255, 255]), { bytesPerRow: 4 }, [1, 1]);
+        this.blackTexture = device.createTexture({ size: [1, 1], format: EMISSIVE_FORMAT, usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+        device.queue.writeTexture({ texture: this.blackTexture }, new Uint8Array([0, 0, 0, 255]), { bytesPerRow: 4 }, [1, 1]);
+
+        const tex = (binding, visibility = S.FRAGMENT) => ({ binding, visibility, texture: {} });
+        const smp = binding => ({ binding, visibility: S.FRAGMENT, sampler: {} });
+        this.bgl0 = device.createBindGroupLayout({ entries: [
+            { binding: 0, visibility: S.VERTEX | S.FRAGMENT | S.COMPUTE, buffer: { type: 'uniform' } }, smp(1), smp(2),
+            { binding: 3, visibility: S.VERTEX | S.FRAGMENT | S.COMPUTE, buffer: { type: 'uniform' } },
+            { binding: 4, visibility: S.FRAGMENT, texture: { sampleType: 'depth', viewDimension: '2d-array' } },
+            { binding: 5, visibility: S.FRAGMENT, sampler: { type: 'comparison' } },
+        ] });
+        this.viewBgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: S.VERTEX | S.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 96 } }] });
+        this.matBgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: S.VERTEX | S.FRAGMENT, buffer: { type: 'uniform' } }, tex(1)] });
+        this.instBgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: S.VERTEX, buffer: { type: 'read-only-storage' } }] });
+        this.impBgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: S.VERTEX | S.FRAGMENT, buffer: { type: 'uniform' } }, tex(1), tex(2), tex(3), tex(4)] });
+        this.cullBgl = device.createBindGroupLayout({ entries: [
+            { binding: 0, visibility: S.COMPUTE, buffer: { type: 'uniform' } }, { binding: 1, visibility: S.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 2, visibility: S.COMPUTE, buffer: { type: 'storage' } }, { binding: 3, visibility: S.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 4, visibility: S.COMPUTE, buffer: { type: 'storage' } },
+        ] });
+        this.bakeBgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: S.VERTEX | S.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 96 } }, smp(1)] });
+        this.mipBgl = device.createBindGroupLayout({ entries: [tex(0), smp(1)] });
+        this.ovBgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: S.VERTEX | S.FRAGMENT, buffer: { type: 'uniform' } }, smp(1), tex(2), tex(3), tex(4), tex(5)] });
+        this.aoBgl = device.createBindGroupLayout({ entries: [
+            { binding: 0, visibility: S.COMPUTE, buffer: { type: 'uniform' } }, { binding: 1, visibility: S.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 2, visibility: S.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 3, visibility: S.COMPUTE, texture: { sampleType: 'depth', viewDimension: '2d-array' } },
+            { binding: 4, visibility: S.COMPUTE, buffer: { type: 'storage' } },
+        ] });
+        this.shadowBuf = device.createBuffer({ size: SHADOW_FLOATS * 4, usage: U.UNIFORM | U.COPY_DST });
+        this.shadowData = new Float32Array(SHADOW_FLOATS);
+        this.viewBuf = device.createBuffer({ size: LISTS * 256, usage: U.UNIFORM | U.COPY_DST });
+        this.viewData = new Float32Array(LISTS * 64);
+        this.viewBG = device.createBindGroup({ layout: this.viewBgl, entries: [{ binding: 0, resource: { buffer: this.viewBuf, size: 96 } }] });
+        this.shadowSampler = device.createSampler({ compare: 'less', magFilter: 'linear', minFilter: 'linear' });
+        // shadow passes bind this 1-layer stand-in: the real map is their render target
+        this.dummyShadow = device.createTexture({ size: [1, 1, 1], format: 'depth32float', usage: GPUTextureUsage.TEXTURE_BINDING });
+        this.shadowPassBG = this.makeGlobalBG(this.dummyShadow);
+        this.ensureShadowMap(2048);
+
+        const layout = (...bgls) => device.createPipelineLayout({ bindGroupLayouts: bgls });
+        const mod = code => device.createShaderModule({ code });
+        const vertexLayout = [{ arrayStride: VF * 4, attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' },
+            { shaderLocation: 2, offset: 24, format: 'float32x2' }, { shaderLocation: 3, offset: 32, format: 'float32x3' },
+        ] }, { arrayStride: 4, attributes: [{ shaderLocation: 4, offset: 0, format: 'float32' }] }];      // + per-vertex AO
+        const mainDepth = (write, compare) => ({ format: DEPTH_FORMAT, depthWriteEnabled: write, depthCompare: compare });
+        const target = [{ format: this.format }], ms = { count: MSAA }, a2c = { count: MSAA, alphaToCoverageEnabled: true };
+
+        const meshMod = mod(WGSL_MESH), meshLayout = layout(this.bgl0, this.matBgl, this.instBgl, this.viewBgl);
+        const mesh = cullMode => device.createRenderPipeline({
+            layout: meshLayout,
+            vertex: { module: meshMod, entryPoint: 'vs', buffers: vertexLayout },
+            fragment: { module: meshMod, entryPoint: 'fs', targets: target },
+            primitive: { topology: 'triangle-list', cullMode, frontFace: 'ccw' },
+            depthStencil: mainDepth(true, 'greater'), multisample: a2c,
+        });
+        this.meshPipe = mesh('back');
+        this.meshTwoSided = mesh('none');
+        const shadowDepth = bias => ({ format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less', depthBias: bias, depthBiasSlopeScale: bias ? 2 : 0 });
+        this.shadowMeshPipe = device.createRenderPipeline({
+            layout: meshLayout,
+            vertex: { module: meshMod, entryPoint: 'vs', buffers: vertexLayout },
+            fragment: { module: meshMod, entryPoint: 'fsShadow', targets: [] },
+            primitive: { topology: 'triangle-list', cullMode: 'none' },
+            depthStencil: shadowDepth(2),
+        });
+        // opaque casters (terrain, bark, stone...): no fragment stage, the fast depth-only path
+        this.shadowOpaquePipe = device.createRenderPipeline({
+            layout: meshLayout,
+            vertex: { module: meshMod, entryPoint: 'vs', buffers: vertexLayout },
+            primitive: { topology: 'triangle-list', cullMode: 'none' },
+            depthStencil: shadowDepth(2),
+        });
+
+        const impMod = mod(WGSL_IMPOSTER), impLayout = layout(this.bgl0, this.impBgl, this.instBgl, this.viewBgl);
+        this.shadowImpPipe = device.createRenderPipeline({
+            layout: impLayout,
+            vertex: { module: impMod, entryPoint: 'vs' },
+            fragment: { module: impMod, entryPoint: 'fsShadow', targets: [] },
+            primitive: { topology: 'triangle-list' },
+            depthStencil: shadowDepth(0),
+        });
+        this.shadowImpCheapPipe = device.createRenderPipeline({
+            layout: impLayout,
+            vertex: { module: impMod, entryPoint: 'vs' },
+            fragment: { module: impMod, entryPoint: 'fsShadowCheap', targets: [] },
+            primitive: { topology: 'triangle-list' },
+            depthStencil: shadowDepth(1),
+        });
+        this.impPipe = device.createRenderPipeline({
+            layout: impLayout,
+            vertex: { module: impMod, entryPoint: 'vs' },
+            fragment: { module: impMod, entryPoint: 'fs', targets: target },
+            primitive: { topology: 'triangle-list' },
+            depthStencil: mainDepth(true, 'greater'), multisample: a2c,
+        });
+
+        const skyMod = mod(WGSL_SKY);
+        this.skyPipe = device.createRenderPipeline({
+            layout: layout(this.bgl0),
+            vertex: { module: skyMod, entryPoint: 'vs' }, fragment: { module: skyMod, entryPoint: 'fs', targets: target },
+            primitive: { topology: 'triangle-list' }, depthStencil: mainDepth(false, 'always'), multisample: ms,
+        });
+
+        const ovMod = mod(WGSL_OVERLAY);
+        this.ovPipe = device.createRenderPipeline({
+            layout: layout(this.ovBgl),
+            vertex: { module: ovMod, entryPoint: 'vs' }, fragment: { module: ovMod, entryPoint: 'fs', targets: target },
+            primitive: { topology: 'triangle-list' }, depthStencil: mainDepth(false, 'always'), multisample: ms,
+        });
+
+        const cullMod = mod(WGSL_CULL);
+        this.cullPipe = device.createComputePipeline({ layout: layout(this.bgl0, this.cullBgl), compute: { module: cullMod, entryPoint: 'cull' } });
+
+        const mipMod = mod(WGSL_MIP), mipLayout = layout(this.mipBgl);
+        const mip = format => device.createRenderPipeline({
+            layout: mipLayout, vertex: { module: mipMod, entryPoint: 'vs' }, fragment: { module: mipMod, entryPoint: 'fs', targets: [{ format }] },
+            primitive: { topology: 'triangle-list' },
+        });
+        this.mipAlbedo = mip(ALBEDO_FORMAT);
+        this.mipNormal = mip(NORMAL_FORMAT);
+
+        const bakeMod = mod(WGSL_BAKE), bakeLayout = layout(this.bakeBgl, this.matBgl);
+        const bake = (emissive, cullMode) => device.createRenderPipeline({
+            layout: bakeLayout,
+            vertex: { module: bakeMod, entryPoint: 'vs', buffers: vertexLayout },
+            fragment: { module: bakeMod, entryPoint: 'fs', targets: atlasLayers(this, emissive).map(([, format]) => ({ format })) },
+            primitive: { topology: 'triangle-list', cullMode, frontFace: 'ccw' },
+            depthStencil: { format: BAKE_DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'less' }, multisample: ms,
+        });
+        this.bakePipes = [false, true].map(e => [bake(e, 'back'), bake(e, 'none')]);        // [emissive][two-sided]
+        this.aoDepthPipe = device.createRenderPipeline({
+            layout: bakeLayout,
+            vertex: { module: bakeMod, entryPoint: 'vs', buffers: vertexLayout },
+            fragment: { module: bakeMod, entryPoint: 'fsDepth', targets: [] },
+            primitive: { topology: 'triangle-list', cullMode: 'none' },
+            depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less' },
+        });
+        this.aoPipe = device.createComputePipeline({ layout: layout(this.aoBgl), compute: { module: mod(WGSL_AO), entryPoint: 'main' } });
+        this.resize();
+    }
+
+    makeGlobalBG(shadowTex) {
+        return this.device.createBindGroup({ layout: this.bgl0, entries: [
+            { binding: 0, resource: { buffer: this.globalBuf } }, { binding: 1, resource: this.repSampler }, { binding: 2, resource: this.clampSampler },
+            { binding: 3, resource: { buffer: this.shadowBuf } }, { binding: 4, resource: shadowTex.createView({ dimension: '2d-array' }) },
+            { binding: 5, resource: this.shadowSampler },
+        ] });
+    }
+
+    ensureShadowMap(res) {
+        res = clamp(res, 256, this.device.limits.maxTextureDimension2D);
+        if (this.shadowTex && this.shadowRes === res) return;
+        this.shadowTex?.destroy();
+        this.shadowRes = res;
+        this.shadowTex = this.device.createTexture({ size: [res, res, CASCADES], format: 'depth32float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+        this.shadowLayers = Array.from({ length: CASCADES }, (_, k) => this.shadowTex.createView({ dimension: '2d', baseArrayLayer: k, arrayLayerCount: 1 }));
+        this.globalBG = this.makeGlobalBG(this.shadowTex);
+    }
+
+    // Cascades: split the camera range [near, shadowDistance] (log / uniform mix by lambda); fit each slice's
+    // bounding sphere with an orthographic light box, snapped to whole texels so shadows do not shimmer, and
+    // stretched far back toward the sun so casters outside the slice still land in the map.
+    writeShadows(cam, env, st, aspect) {
+        const S = this.shadowData, res = this.shadowRes, far = st.shadowDistance, near = 0.5, lambda = st.shadowLambda;
+        const fwd = cam.forward(), right = cam.right(), up = v3.cross(right, fwd);
+        const th = Math.tan(cam.fov * DEG / 2), tw = th * aspect, L = env.sunDir;
+        const LV = m4.lookAt(L, [0, 0, 0], Math.abs(L[1]) > 0.99 ? [0, 0, 1] : [0, 1, 0]);
+        let prev = near;
+        for (let c = 0; c < CASCADES; c++) {
+            const t = (c + 1) / CASCADES, split = lerp(near + (far - near) * t, near * Math.pow(far / near, t), lambda);
+            let center = [0, 0, 0];
+            const corners = [];
+            for (const dd of [prev, split]) for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+                const p = v3.add(v3.add(v3.madd(cam.pos, fwd, dd), v3.mul(right, sx * tw * dd)), v3.mul(up, sy * th * dd));
+                corners.push(p);
+                center = v3.add(center, v3.mul(p, 1 / 8));
+            }
+            const radius = Math.ceil(Math.max(...corners.map(p => v3.len(v3.sub(p, center)))) * 2) / 2;
+            const texel = 2 * radius / res;
+            const cl = [0, 1, 2].map(k => LV[k] * center[0] + LV[4 + k] * center[1] + LV[8 + k] * center[2] + LV[12 + k]);
+            const x = Math.floor(cl[0] / texel) * texel, y = Math.floor(cl[1] / texel) * texel;
+            const n = -cl[2] - radius - 800, f = -cl[2] + radius;
+            const P = new Float64Array(16);
+            P[0] = 1 / radius; P[5] = 1 / radius; P[10] = -1 / (f - n); P[12] = -x / radius; P[13] = -y / radius; P[14] = -n / (f - n); P[15] = 1;
+            const M = m4.mul(P, LV);
+            S.set(M, c * 16);
+            S[64 + c] = split;
+            S[68 + c] = texel;
+            const row = r => [M[r], M[4 + r], M[8 + r], M[12 + r]];
+            const r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3), comb = (a, b, k) => a.map((q, i) => q + k * b[i]);
+            this.cascadePlanes[c] = [comb(r3, r0, 1), comb(r3, r0, -1), comb(r3, r1, 1), comb(r3, r1, -1), r2, comb(r3, r2, -1)].map((pl, k) => {
+                const l = Math.hypot(pl[0], pl[1], pl[2]) || 1, n = pl.map(q => q / l);
+                S.set(n, 72 + (c * 6 + k) * 4);
+                return n;
+            });
+            this.viewData.set(M, (c + 1) * 64);
+            this.viewData.set([0, 0, 0, 0, -L[0], -L[1], -L[2], c >= CHEAP_CASCADE ? 1 : 0], (c + 1) * 64 + 16);
+            prev = split;
+        }
+        S.set([CASCADES, res, st.cascadeTint ? 1 : 0, st.shadows ? 1 : 0], 168);
+        this.device.queue.writeBuffer(this.shadowBuf, 0, S);
+    }
+
+    patternTexture(def) {
+        const key = JSON.stringify([def.pattern, def.colors, def.seed, def.size, def.alphaCutoff]);
+        let t = this.patterns.get(key);
+        if (!t) this.patterns.set(key, t = uploadImage(this.device, TextureFactory.canvas(def), def.alphaCutoff || 0));
+        return t;
+    }
+
+    resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2), c = this.canvas;
+        const w = Math.max(1, Math.floor(c.clientWidth * dpr)), h = Math.max(1, Math.floor(c.clientHeight * dpr));
+        if (this.msaaTex && c.width === w && c.height === h) return;
+        c.width = w; c.height = h;
+        this.msaaTex?.destroy(); this.depthTex?.destroy();
+        const U = GPUTextureUsage.RENDER_ATTACHMENT;
+        this.msaaTex = this.device.createTexture({ size: [w, h], format: this.format, sampleCount: MSAA, usage: U });
+        this.depthTex = this.device.createTexture({ size: [w, h], format: DEPTH_FORMAT, sampleCount: MSAA, usage: U });
+        this.msaaView = this.msaaTex.createView();
+        this.depthView = this.depthTex.createView();
+    }
+
+    writeGlobals(cam, env, st, time) {
+        const g = this.globals, W = this.canvas.width, H = this.canvas.height;
+        const vp = m4.mul(m4.perspective(cam.fov * DEG, W / H, 0.1), cam.view());
+        g.set(vp, 0);
+        g.set([...cam.pos, time], 16);
+        g.set([...env.sunDir, env.exposure], 20);
+        g.set([...env.sunColor, env.sunIntensity], 24);
+        g.set([...env.skyTop, 0], 28);
+        g.set([...env.skyHorizon, 0], 32);
+        g.set([...env.ambientSky, 0], 36);
+        g.set([...env.ambientGround, env.ambientStrength], 40);
+        g.set([...env.fogColor, env.fogDensity], 44);
+        this.camPlanes = frustumPlanes(vp);
+        this.camPlanes.forEach((p, i) => g.set(p, 48 + i * 4));
+        g.set([st.lodDistance, st.fade, st.far, LOD_MODES.indexOf(st.lodMode)], 72);
+        g.set([st.blend ? 1 : 0, st.parallax ? 1 : 0, st.depthOffset ? 1 : 0, st.tint ? 1 : 0], 76);
+        g.set(m4.invert(vp), 80);
+        g.set([W, H, 1 / W, 1 / H], 96);
+        g.set([env.emission, 0, 0, 0], 100);
+        g.set([...cam.forward(), 0], 104);
+        this.device.queue.writeBuffer(this.globalBuf, 0, g);
+        this.viewData.set(vp, 0);
+        this.viewData.set([...cam.pos, 1, ...cam.forward(), 0], 16);
+    }
+
+    stamps(i) { return this.querySet ? { querySet: this.querySet, beginningOfPassWriteIndex: i, endOfPassWriteIndex: i + 1 } : undefined; }
+
+    // is a static archetype's bounding sphere inside list `list`'s volume (camera frustum + far, or a cascade box)
+    sees(a, list, st, cam) {
+        const planes = list ? this.cascadePlanes[list - 1] : this.camPlanes, c = a.sphere[0], r = a.sphere[1];
+        if (!list && v3.len(v3.sub(c, cam.pos)) - r > st.far) return false;
+        return planes.every(p => p[0] * c[0] + p[1] * c[1] + p[2] * c[2] + p[3] >= -r);
+    }
+
+    // draw every archetype's list `list` (0: camera, 1 + c: cascade c); meshPipe(material) picks the mesh pipeline.
+    // GPU-culled archetypes draw indirect; static ones (terrain chunks) are culled here and drawn directly,
+    // which spares the browser's per-draw validation of hundreds of indirect draws.
+    drawLists(pass, archs, list, meshPipe, impPipe, shadow, st, cam) {
+        let cur = null;
+        for (const a of archs) {
+            if (!a.count || (shadow && !a.asset.castShadows)) continue;
+            if (a.static) {
+                const seen = this.sees(a, list, st, cam);
+                if (list) a.cpuCasters += seen ? 1 : 0; else a.visible[0] = seen ? 1 : 0;
+                if (!seen) continue;
+            }
+            const gm = a.asset.gpu(this), base = list * a.setStride;
+            pass.setVertexBuffer(0, gm.vbuf);
+            pass.setVertexBuffer(1, gm.aoBuf);
+            pass.setIndexBuffer(gm.ibuf, 'uint32');
+            pass.setBindGroup(2, a.static ? a.srcBG : a.meshBG[list]);
+            a.asset.mesh.submeshes.forEach((s, i) => {
+                const p = meshPipe(s.material);
+                if (p !== cur) { pass.setPipeline(p); cur = p; }
+                pass.setBindGroup(1, s.material.bindGroup(this));
+                if (a.static) pass.drawIndexed(s.count, a.count, s.first, 0, 0);
+                else pass.drawIndexedIndirect(a.args, base + 16 + 20 * i);
+            });
+        }
+        pass.setPipeline(impPipe);
+        for (const a of archs) {
+            if (!a.count || a.static || !a.asset.atlas || (shadow && !a.asset.castShadows)) continue;
+            pass.setBindGroup(1, a.asset.atlas.bg);
+            pass.setBindGroup(2, a.impBG[list]);
+            pass.drawIndirect(a.args, list * a.setStride);
+        }
+    }
+
+    // one frame: cull (compute: camera + cascades) -> counts into the indirect args -> shadow cascades ->
+    // sky, meshes, imposters, atlas overlay
+    render(world, cam, st, time, overlay, env) {
+        this.resize();
+        const d = this.device, archs = world ? world.list : [];
+        this.writeGlobals(cam, env, st, time);
+        this.writeShadows(cam, env, st, this.canvas.width / this.canvas.height);
+        for (let k = 0; k < LISTS; k++) d.queue.writeBuffer(this.viewBuf, k * 256, this.viewData, k * 64, 24);
+        const enc = d.createCommandEncoder();
+        for (const a of archs) a.upload(this);
+        if (archs.length) {
+            const cp = enc.beginComputePass({ timestampWrites: this.stamps(0) });
+            cp.setPipeline(this.cullPipe);
+            cp.setBindGroup(0, this.globalBG);
+            for (const a of archs) if (a.count && !a.static) { cp.setBindGroup(1, a.cullBG); cp.dispatchWorkgroups(Math.ceil(a.count / 64)); }
+            cp.end();
+        }
+        // a few times a second: copy the indirect args back for the HUD's counts
+        const doRead = archs.length > 0 && !this.readPending && time - this.lastRead > 0.25;
+        const offsets = [];
+        let readBytes = 0;
+        for (const a of archs) { offsets.push(readBytes); readBytes += a.static ? 0 : a.setStride * LISTS; }
+        if (doRead) {
+            if (!this.readBuf || this.readBuf.size < readBytes) {
+                this.readBuf?.destroy();
+                this.readBuf = d.createBuffer({ size: readBytes * 2, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+            }
+            archs.forEach((a, i) => { if (!a.static) enc.copyBufferToBuffer(a.args, 0, this.readBuf, offsets[i], a.setStride * LISTS); });
+        }
+
+        if (st.shadows && archs.length) for (let c = 0; c < CASCADES; c++) {
+            const pass = enc.beginRenderPass({ colorAttachments: [], timestampWrites: this.stamps(2 + c * 2),
+                depthStencilAttachment: { view: this.shadowLayers[c], depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' } });
+            pass.setBindGroup(0, this.shadowPassBG);
+            pass.setBindGroup(3, this.viewBG, [(c + 1) * 256]);
+            this.drawLists(pass, archs, c + 1, m => (m.alphaCutoff > 0 ? this.shadowMeshPipe : this.shadowOpaquePipe), c >= CHEAP_CASCADE ? this.shadowImpCheapPipe : this.shadowImpPipe, true, st, cam);
+            pass.end();
+        }
+
+        const pass = enc.beginRenderPass({
+            timestampWrites: this.stamps(10),
+            colorAttachments: [{ view: this.msaaView, resolveTarget: this.ctx.getCurrentTexture().createView(), clearValue: [0, 0, 0, 1], loadOp: 'clear', storeOp: 'discard' }],
+            depthStencilAttachment: { view: this.depthView, depthClearValue: 0, depthLoadOp: 'clear', depthStoreOp: 'discard' },
+        });
+        pass.setPipeline(this.skyPipe);
+        pass.setBindGroup(0, this.globalBG);
+        pass.draw(3);
+        pass.setBindGroup(3, this.viewBG, [0]);
+        this.drawLists(pass, archs, 0, m => (m.doubleSided ? this.meshTwoSided : this.meshPipe), this.impPipe, false, st, cam);
+        for (const a of archs) if (a.static) { a.casters[0] = st.shadows ? a.cpuCasters : 0; a.cpuCasters = 0; }
+        if (overlay) {
+            // bottom right, left of the control panel when that is showing
+            const W = this.canvas.width, H = this.canvas.height, dpr = W / Math.max(1, this.canvas.clientWidth), m = 12 * dpr;
+            const right = (overlay.rightInset || 0) * dpr + m, px = Math.max(64, Math.min(H * 0.42, (W - right) * 0.45, 440 * dpr));
+            const s = overlay.sel, x0 = W - right - px, y0 = H - m - px;
+            d.queue.writeBuffer(this.overlayBuf, 0, new Float32Array([
+                x0 / W * 2 - 1, 1 - y0 / H * 2, (x0 + px) / W * 2 - 1, 1 - (y0 + px) / H * 2,
+                ...s.cells[0], ...s.cells[1], ...s.cells[2], overlay.atlas.grid, ATLAS_VIEWS.indexOf(overlay.view), ...s.w, 0,
+            ]));
+            pass.setPipeline(this.ovPipe);
+            pass.setBindGroup(0, overlay.atlas.overlayBG);
+            pass.draw(6);
+        }
+        pass.end();
+        const doTime = this.querySet && !this.queryPending && doRead;
+        if (doTime) {
+            enc.resolveQuerySet(this.querySet, 0, 12, this.queryBuf, 0);
+            enc.copyBufferToBuffer(this.queryBuf, 0, this.queryRead, 0, 96);
+        }
+        d.queue.submit([enc.finish()]);
+        if (doTime) {
+            this.queryPending = true;
+            const shadowsOn = st.shadows && archs.length > 0;
+            this.queryRead.mapAsync(GPUMapMode.READ).then(() => {
+                const t = new BigUint64Array(this.queryRead.getMappedRange()), ms = k => Math.max(0, Number(t[k + 1] - t[k])) / 1e6;
+                this.gpuTimes = { cull: ms(0), shadow: shadowsOn ? [0, 1, 2, 3].map(c => ms(2 + c * 2)) : null, main: ms(10) };
+                this.queryRead.unmap();
+                this.queryPending = false;
+            }).catch(() => { this.queryPending = false; });
+        }
+
+        if (doRead) {
+            this.readPending = true;
+            this.lastRead = time;
+            const list = archs.slice(), buf = this.readBuf, n = readBytes;
+            buf.mapAsync(GPUMapMode.READ, 0, n).then(() => {
+                const u = new Uint32Array(buf.getMappedRange(0, n));
+                list.forEach((a, i) => {
+                    if (a.static) return;
+                    const words = a.setStride / 4, subs = a.asset.mesh.submeshes.length;
+                    const count = (k, mesh) => u[offsets[i] / 4 + k * words + (mesh ? 5 : 1)] * (mesh ? (subs ? 1 : 0) : 1);
+                    a.visible[0] = count(0, true);
+                    a.visible[1] = count(0, false);
+                    a.casters = [0, 0];
+                    for (let c = 1; c < LISTS; c++) { a.casters[0] += count(c, true); a.casters[1] += count(c, false); }
+                });
+                buf.unmap();
+                this.readPending = false;
+            }).catch(() => { this.readPending = false; });
+        }
+    }
+}
+
+// ================================================================ lighting
+// A lighting scenario: sun (azimuth / elevation in degrees, colour, intensity), sky, ambient, fog, exposure
+// and emission (how bright emissive surfaces glow: lights on at night). All of it is applied per frame by the
+// shaders to the surfaces the meshes and imposter atlases carry; nothing of it is baked.
+const sunDirFrom = (az, el) => [Math.sin(az * DEG) * Math.cos(el * DEG), Math.sin(el * DEG), Math.cos(az * DEG) * Math.cos(el * DEG)];
+
+function parseEnv(e = {}) {
+    const sun = e.sun || {}, sky = e.sky || {}, amb = e.ambient || {}, fog = e.fog || {};
+    let az = sun.azimuth, el = sun.elevation;
+    if (az === undefined || el === undefined) {
+        const d = v3.norm(sun.dir || [0.45, 0.58, 0.62]);
+        az = Math.atan2(d[0], d[2]) / DEG;
+        el = Math.asin(d[1]) / DEG;
+    }
+    return {
+        azimuth: az, elevation: el, sunDir: sunDirFrom(az, el), sunColor: lin(sun.color || '#fff1dc'), sunIntensity: sun.intensity ?? 2.8,
+        skyTop: lin(sky.top || '#3d6fb6'), skyHorizon: lin(sky.horizon || '#bfd3e4'),
+        ambientSky: lin(amb.sky || '#a8c4e6'), ambientGround: lin(amb.ground || '#6a604c'), ambientStrength: amb.strength ?? 0.55,
+        fogColor: lin(fog.color || '#bccfde'), fogDensity: fog.density ?? 0.002, exposure: e.exposure ?? 1, emission: e.emission ?? 1,
+    };
+}
+
+function lerpEnv(a, b, t) {
+    const o = {};
+    for (const k in b) o[k] = Array.isArray(b[k]) ? b[k].map((x, i) => lerp(a[k][i], x, t)) : lerp(a[k], b[k], t);
+    o.sunDir = v3.norm(o.sunDir);
+    return o;
+}
+
+// Lighting: the scenario's named presets, the current environment and animated switches between them
+class Lighting {
+    constructor() {
+        this.presets = {};
+        this.name = '';
+        this.env = parseEnv();
+        this.target = this.env;
+        this.from = null;
+        this.t = 1;
+        this.changes = 0;               // relights since start (switches + sun / emission tweaks)
+    }
+
+    get names() { return Object.keys(this.presets); }
+
+    // `environment` names a preset of `lighting`, or is an environment object itself
+    load(sc) {
+        this.presets = { ...(sc.lighting || {}) };
+        let name = sc.environment;
+        if (name && typeof name === 'object') { this.presets = { custom: name, ...this.presets }; name = 'custom'; }
+        if (!this.presets[name]) name = this.names[0];
+        if (!name) { this.presets = { default: {} }; name = 'default'; }
+        this.set(name, false);
+    }
+
+    set(name, animate = true) {
+        if (!this.presets[name]) return;
+        this.name = name;
+        this.target = parseEnv(this.presets[name]);
+        if (animate) { this.from = this.env; this.t = 0; this.changes++; }
+        else { this.env = { ...this.target }; this.t = 1; }
+    }
+
+    cycle() { const n = this.names; this.set(n[(n.indexOf(this.name) + 1) % n.length]); }
+
+    // azimuth, elevation or emission
+    tweak(key, value) {
+        this.target[key] = value;
+        this.target.sunDir = sunDirFrom(this.target.azimuth, this.target.elevation);
+        if (this.t >= 1) this.env = { ...this.target };
+        this.changes++;
+    }
+
+    update(dt) {
+        if (this.t >= 1) return;
+        this.t = Math.min(1, this.t + dt / 1.5);
+        this.env = lerpEnv(this.from, this.target, smoothstep(0, 1, this.t));
+    }
+}
+
+// ================================================================ archetypes
+// Archetype: every instance of one ModelAsset in a world, and the GPU side of drawing them: source
+// instances, the culled mesh / imposter lists (LISTS of them: camera, then one per shadow cascade, each
+// `seg` instances long) and their indirect draw arguments (per list, `setStride` bytes: 0..15 imposter draw,
+// then one drawIndexedIndirect per submesh), whose instance counts the cull pass fills in.
+class Archetype {
+    constructor(asset) {
+        this.asset = asset;
+        this.name = asset.name;
+        this.items = [];
+        this.count = 0;
+        this.visible = [0, 0];          // mesh / imposter instances drawn (read back a few times a second)
+        this.casters = [0, 0];          // ... drawn into the shadow cascades (summed)
+        // static: one forced-mesh instance that never moves (terrain chunks): culled on the CPU, drawn directly
+        this.static = asset.kind === 'generated';
+        this.cpuCasters = 0;
+        this.dirty = null;              // [first, last] instance range to upload
+        this.version = -1;
+    }
+
+    add(pos, q, scale, force = 0) {
+        this.items.push(pos[0], pos[1], pos[2], scale, q[0], q[1], q[2], q[3], force, 0, 0, 0);
+        return this.count++;
+    }
+
+    set(i, pos, q, scale) {
+        const o = i * INSTANCE_FLOATS, a = this.data;
+        a[o] = pos[0]; a[o + 1] = pos[1]; a[o + 2] = pos[2]; a[o + 3] = scale;
+        a[o + 4] = q[0]; a[o + 5] = q[1]; a[o + 6] = q[2]; a[o + 7] = q[3];
+        this.dirty = this.dirty ? [Math.min(this.dirty[0], i), Math.max(this.dirty[1], i)] : [i, i];
+    }
+
+    instance(i) {
+        const o = i * INSTANCE_FLOATS, a = this.data;
+        return { pos: [a[o], a[o + 1], a[o + 2]], scale: a[o + 3], rot: [a[o + 4], a[o + 5], a[o + 6], a[o + 7]], force: a[o + 8] };
+    }
+
+    create(r) {
+        const d = r.device, U = GPUBufferUsage, bytes = Math.max(1, this.count) * INSTANCE_BYTES, subs = this.asset.mesh.submeshes;
+        this.data = new Float32Array(this.items);
+        this.items = null;
+        this.seg = Math.max(16, Math.ceil(this.count / 16) * 16);      // 16 instances = 768 bytes: lists start 256-aligned
+        const listBytes = this.seg * INSTANCE_BYTES;
+        this.setStride = 16 + 20 * subs.length;
+        this.src = d.createBuffer({ size: bytes, usage: U.STORAGE | U.COPY_DST });
+        this.meshOut = d.createBuffer({ size: listBytes * LISTS, usage: U.STORAGE });
+        this.impOut = d.createBuffer({ size: listBytes * LISTS, usage: U.STORAGE });
+        this.args = d.createBuffer({ size: this.setStride * LISTS, usage: U.INDIRECT | U.STORAGE | U.COPY_SRC | U.COPY_DST });
+        this.params = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
+        const args = new Uint32Array(this.setStride / 4 * LISTS);
+        for (let k = 0, o = 0; k < LISTS; k++, o += this.setStride / 4) {
+            args[o] = 6;
+            subs.forEach((s, i) => { args[o + 4 + 5 * i] = s.count; args[o + 4 + 5 * i + 2] = s.first; });
+        }
+        this.argsTemplate = args;          // instance counts 0; written back every frame before culling
+        if (this.count) d.queue.writeBuffer(this.src, 0, this.data);
+        this.cullBG = d.createBindGroup({ layout: r.cullBgl, entries: [
+            { binding: 0, resource: { buffer: this.params } }, { binding: 1, resource: { buffer: this.src } },
+            { binding: 2, resource: { buffer: this.meshOut } }, { binding: 3, resource: { buffer: this.impOut } },
+            { binding: 4, resource: { buffer: this.args } },
+        ] });
+        const list = (buffer, k) => d.createBindGroup({ layout: r.instBgl, entries: [{ binding: 0, resource: { buffer, offset: k * listBytes, size: listBytes } }] });
+        this.meshBG = Array.from({ length: LISTS }, (_, k) => list(this.meshOut, k));
+        this.srcBG = d.createBindGroup({ layout: r.instBgl, entries: [{ binding: 0, resource: { buffer: this.src } }] });
+        // world-space bounding sphere of a static archetype (its instances do not move)
+        const m = this.asset.mesh, inst = this.count ? this.instance(0) : null;
+        this.sphere = inst ? [v3.add(inst.pos, quat.rotate(inst.rot, v3.mul(m.center, inst.scale))), m.radius * inst.scale * (this.count > 1 ? 1e6 : 1)] : [[0, 0, 0], 0];
+        this.impBG = Array.from({ length: LISTS }, (_, k) => list(this.impOut, k));
+    }
+
+    upload(r) {
+        const d = r.device, a = this.asset;
+        if (this.version !== a.version) {
+            this.version = a.version;
+            const m = a.mesh, R = m.radius * 1.02, buf = new ArrayBuffer(48), u = new Uint32Array(buf), f = new Float32Array(buf);
+            u[0] = this.count; u[1] = a.atlas ? 1 : 0; f[2] = R; f[3] = R / 5 * a.lodBias;
+            f.set(m.center, 4);
+            u[8] = this.seg; u[9] = a.castShadows ? 1 : 0; u[10] = this.setStride / 4; u[11] = m.submeshes.length;
+            d.queue.writeBuffer(this.params, 0, buf);
+        }
+        d.queue.writeBuffer(this.args, 0, this.argsTemplate);
+        if (this.dirty) {
+            const [i0, i1] = this.dirty;
+            d.queue.writeBuffer(this.src, i0 * INSTANCE_BYTES, this.data, i0 * INSTANCE_FLOATS, (i1 - i0 + 1) * INSTANCE_FLOATS);
+            this.dirty = null;
+        }
+    }
+
+    destroy() { for (const b of [this.src, this.meshOut, this.impOut, this.args, this.params]) b?.destroy(); }
+}
+
+// ================================================================ entities
+// Each is constructed from a scenario definition ({ type, id, ... }) and spawned once, in scenario order.
+class Entity {
+    constructor(def, world) {
+        this.def = def;
+        this.world = world;
+        this.id = def.id;
+    }
+    spawn() {}
+    update(dt, t) {}
+}
+
+// Heightfield ground: fbm hills, flattened inside `flat` [cx, cz, r0, r1]; a ring of ridged `mountains`
+// { inner, outer, height, frequency } around `center`; single `peaks` [x, z, radius, height]. Built in
+// `chunks` x `chunks` pieces, each its own model, so the camera and every shadow cascade cull them. Vertex
+// colours come from `layers`: grass / dry grass, rock where steep (`rockSlope`: 1 - normal.y range) and
+// snow above `snowLine` (a height range). The terrain casts shadows unless `castShadows` is false.
+class Terrain extends Entity {
+    spawn() {
+        const e = this.def, w = this.world;
+        this.size = e.size || 1000;
+        this.res = e.res || 128;
+        this.amp = e.height ?? 10;
+        this.freq = e.frequency ?? 0.004;
+        this.seed = e.seed ?? 1;
+        this.flat = e.flat;
+        this.mountains = e.mountains;
+        this.peaks = e.peaks || [];
+        const n = this.res, S = this.size, step = S / n, H = this.heights = new Float32Array((n + 1) * (n + 1));
+        for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) H[j * (n + 1) + i] = this.noise(-S / 2 + i * step, -S / 2 + j * step);
+        w.terrain = this;
+
+        const h = (i, j) => H[clamp(j, 0, n) * (n + 1) + clamp(i, 0, n)], L = e.layers || {}, mix3 = (a, b, t) => a.map((x, k) => x + (b[k] - x) * t);
+        const col = { grass: lin(L.grass || '#5d7a34'), dry: lin(L.dry || '#8c8a4c'), rock: lin(L.rock || '#6f675f'), snow: lin(L.snow || '#f4f6fa') };
+        const [s0, s1] = L.rockSlope || [0.3, 0.5], [l0, l1] = L.snowLine || [1e9, 2e9];
+        const chunks = clamp(e.chunks || 1, 1, 32), cn = Math.ceil(n / chunks), key = JSON.stringify(e);
+        for (let cj = 0; cj < chunks; cj++) for (let ci = 0; ci < chunks; ci++) {
+            const i0 = ci * cn, j0 = cj * cn, i1 = Math.min(n, i0 + cn), j1 = Math.min(n, j0 + cn), wd = i1 - i0 + 1;
+            if (i0 >= n || j0 >= n) continue;
+            const asset = w.lib.generated(`terrain:${e.id || ''}:${ci},${cj}:${key}`, () => {
+                const g = new Geo();
+                g.col = [];
+                for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+                    const x = -S / 2 + i * step, z = -S / 2 + j * step, y = h(i, j);
+                    const nrm = v3.norm([h(i - 1, j) - h(i + 1, j), 2 * step, h(i, j - 1) - h(i, j + 1)]), steep = 1 - nrm[1];
+                    let c = mix3(col.grass, col.dry, (noise3(x * 0.02, 0, z * 0.02, this.seed + 50) * 0.5 + 0.5) * 0.6);
+                    c = mix3(c, col.rock, smoothstep(s0, s1, steep + noise3(x * 0.05, 0, z * 0.05, this.seed + 55) * 0.06));
+                    const snow = smoothstep(l0, l1, y + noise3(x * 0.01, 0, z * 0.01, this.seed + 60) * 40) * (1 - smoothstep(0.3, 0.5, steep));
+                    g.vert([x, y, z], nrm, [x, z]);
+                    g.col.push(...mix3(c, col.snow, snow));
+                }
+                for (let j = 0; j < j1 - j0; j++) for (let i = 0; i < i1 - i0; i++) {
+                    const a = j * wd + i;
+                    g.quad(a, a + wd, a + wd + 1, a + 1);
+                }
+                const b = new MeshBuilder();
+                b.add(g, w.lib.material(e.mat));
+                return b.finish();
+            });
+            asset.castShadows = e.castShadows !== false;
+            w.archetype(asset).add([0, 0, 0], quat.identity(), 1, FORCE.mesh);
+        }
+    }
+
+    noise(x, z) {
+        const f = this.freq;
+        let h = fbm(x * f, z * f, 5, this.seed) * this.amp + fbm(x * f * 0.3, z * f * 0.3, 3, this.seed + 9) * this.amp * 1.4;
+        if (this.flat) { const [cx, cz, r0, r1] = this.flat; h *= smoothstep(r0, r1, Math.hypot(x - cx, z - cz)); }
+        const m = this.mountains;
+        if (m) {
+            const [cx, cz] = m.center || [0, 0], ring = smoothstep(m.inner ?? 500, m.outer ?? 1000, Math.hypot(x - cx, z - cz));
+            const mf = m.frequency ?? 0.002;
+            if (ring > 0) h += ring * (m.height ?? 200) * ridged(x * mf, z * mf, 6, this.seed + 20);
+        }
+        for (const [px, pz, rad, ph] of this.peaks) {
+            const t = 1 - Math.hypot(x - px, z - pz) / rad;
+            if (t > 0) h += ph * Math.pow(smoothstep(0, 1, t), 1.6) * (0.7 + 0.5 * ridged(x * 0.004, z * 0.004, 5, this.seed + 30));
+        }
+        return h;
+    }
+
+    height(x, z) {
+        const n = this.res, step = this.size / n;
+        const gx = clamp((x + this.size / 2) / step, 0, n - 1e-6), gz = clamp((z + this.size / 2) / step, 0, n - 1e-6);
+        const i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j, H = this.heights, k = j * (n + 1) + i;
+        const ha = H[k], hb = H[k + n + 1], hc = H[k + n + 2], hd = H[k + 1];
+        return fz >= fx ? ha + (hc - hb) * fx + (hb - ha) * fz : ha + (hd - ha) * fx + (hc - hd) * fz;
+    }
+
+    // 1 - normal.y: 0 flat, 1 vertical
+    slope(x, z) {
+        const e = this.size / this.res;
+        return 1 - v3.norm([this.height(x - e, z) - this.height(x + e, z), 2 * e, this.height(x, z - e) - this.height(x, z + e)])[1];
+    }
+
+    contains(x, z, margin) { return Math.abs(x) < this.size / 2 - margin && Math.abs(z) < this.size / 2 - margin; }
+}
+
+// A model at pos (y above the ground unless `absolute`), rot (degrees), scale; `lod` forces mesh / imposter;
+// `spin` { axis, speed (deg/s) } turns it; `footprint` keeps scatters away
+class Prop extends Entity {
+    spawn() {
+        const e = this.def, w = this.world, p = e.pos || [0, 0, 0];
+        this.arch = w.archetype(e.model);
+        this.base = [p[0], p[1] + (e.absolute ? 0 : w.heightAt(p[0], p[2])), p[2]];
+        this.rot0 = quat.euler(e.rot);
+        this.scale = e.scale ?? 1;
+        this.slot = this.arch.add(this.base, this.rot0, this.scale, FORCE[e.lod] ?? 0);
+        if (e.footprint) w.occupy(p[0], p[2], e.footprint);
+    }
+
+    spinRot(t) {
+        const s = this.def.spin;
+        return s ? quat.mul(quat.axis(s.axis || [0, 1, 0], (s.speed ?? 20) * DEG * t), this.rot0) : this.rot0;
+    }
+
+    update(dt, t) { if (this.def.spin) this.arch.set(this.slot, this.base, this.spinRot(t), this.scale); }
+}
+
+// The same model twice, `gap` metres apart along x: forced mesh on the left, forced imposter on the right
+class Compare extends Prop {
+    spawn() {
+        const e = this.def, w = this.world, p = e.pos || [0, 0, 0], gap = e.gap ?? 12;
+        this.arch = w.archetype(e.model);
+        this.rot0 = quat.euler(e.rot);
+        this.scale = e.scale ?? 1;
+        this.slots = [[-gap / 2, FORCE.mesh], [gap / 2, FORCE.imposter]].map(([dx, force]) => {
+            const x = p[0] + dx, z = p[2], pos = [x, p[1] + w.heightAt(x, z), z];
+            if (e.footprint) w.occupy(x, z, e.footprint);
+            return { pos, slot: this.arch.add(pos, this.rot0, this.scale, force) };
+        });
+    }
+
+    update(dt, t) {
+        if (!this.def.spin) return;
+        const q = this.spinRot(t);
+        for (const s of this.slots) this.arch.set(s.slot, s.pos, q, this.scale);
+    }
+}
+
+// `count` copies in the ring inner..outer around `center` [x, z], random yaw, scale in `scale` [min, max],
+// optional `tilt` (degrees), sunk `sink` metres; darts closer than `spacing` * scale to anything are rejected,
+// and so are ground steeper than `maxSlope` (1 - normal.y) or higher than `maxHeight` (treeline)
+class Scatter extends Entity {
+    spawn() {
+        const e = this.def, w = this.world, arch = w.archetype(e.model), rnd = rng(e.seed ?? 1);
+        const [cx, cz] = e.center || [0, 0], inner = e.inner ?? 0, outer = e.outer ?? 100, count = e.count ?? 100;
+        const [s0, s1] = Array.isArray(e.scale) ? e.scale : [e.scale ?? 1, e.scale ?? 1], spacing = e.spacing ?? 2, sink = e.sink ?? 0.15;
+        let placed = 0;
+        for (let tries = 0; placed < count && tries < count * 12; tries++) {
+            const a = rnd() * Math.PI * 2, r = Math.sqrt(lerp(inner * inner, outer * outer, rnd()));
+            const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r, s = lerp(s0, s1, rnd()), yaw = rnd() * Math.PI * 2;
+            const tilt = e.tilt ? quat.axis([rnd() - 0.5, 0, rnd() - 0.5], e.tilt * DEG * rnd()) : null;
+            if (w.terrain && !w.terrain.contains(x, z, spacing * s)) continue;
+            if (e.maxHeight !== undefined && w.heightAt(x, z) > e.maxHeight) continue;
+            if (e.maxSlope !== undefined && w.terrain && w.terrain.slope(x, z) > e.maxSlope) continue;
+            if (w.occupied(x, z, spacing * s)) continue;
+            w.occupy(x, z, spacing * s);
+            let q = quat.axis([0, 1, 0], yaw);
+            if (tilt) q = quat.mul(tilt, q);
+            arch.add([x, w.heightAt(x, z) - sink * s, z], q, s, 0);
+            placed++;
+        }
+        if (placed < count) w.warnings.push(`scatter "${e.id || e.model}": placed ${placed} of ${count}`);
+    }
+}
+
+const ENTITY_TYPES = { terrain: Terrain, prop: Prop, compare: Compare, scatter: Scatter };
+
+// ================================================================ world
+class World {
+    constructor(game, scenario) {
+        this.game = game;
+        this.sc = scenario;
+        this.lib = game.lib;
+        this.archetypes = new Map();
+        this.list = [];
+        this.entities = [];
+        this.terrain = null;
+        this.occ = new Map();           // spatial hash of footprints: 8 m cells -> [x, z, r, ...]
+        this.occMax = 0;
+        this.warnings = [];
+    }
+
+    async build() {
+        this.lib.load(this.sc);
+        for (const def of this.sc.entities || []) {
+            const T = ENTITY_TYPES[def.type];
+            if (!T) { this.warnings.push(`unknown entity type "${def.type}"`); continue; }
+            try {
+                const e = new T(def, this);
+                e.spawn();
+                this.entities.push(e);
+            } catch (err) {
+                this.warnings.push(`${def.type} "${def.id || def.model || ''}": ${err.message}`);
+            }
+        }
+        this.warnings.push(...new Set(this.lib.warnings));
+        this.list = [...this.archetypes.values()];
+        for (const a of this.list) {
+            if (a.asset.settings.enabled && !a.asset.atlas) await this.game.bake(a.asset);
+            a.create(this.game.renderer);
+        }
+    }
+
+    archetype(model) {
+        const asset = typeof model === 'string' ? this.lib.asset(model) : model;
+        let a = this.archetypes.get(asset.name);
+        if (!a) this.archetypes.set(asset.name, a = new Archetype(asset));
+        return a;
+    }
+
+    heightAt(x, z) { return this.terrain ? this.terrain.height(x, z) : 0; }
+
+    occupy(x, z, r) {
+        const k = `${Math.floor(x / 8)},${Math.floor(z / 8)}`;
+        let c = this.occ.get(k);
+        if (!c) this.occ.set(k, c = []);
+        c.push(x, z, r);
+        this.occMax = Math.max(this.occMax, r);
+    }
+
+    occupied(x, z, r) {
+        const reach = r + this.occMax, i0 = Math.floor((x - reach) / 8), i1 = Math.floor((x + reach) / 8);
+        const j0 = Math.floor((z - reach) / 8), j1 = Math.floor((z + reach) / 8);
+        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+            const c = this.occ.get(`${i},${j}`);
+            if (c) for (let k = 0; k < c.length; k += 3) if (Math.hypot(c[k] - x, c[k + 1] - z) < r + c[k + 2]) return true;
+        }
+        return false;
+    }
+
+    update(dt, t) { for (const e of this.entities) e.update(dt, t); }
+
+    destroy() { for (const a of this.list) a.destroy(); }
+}
+
+// ================================================================ camera + input
+class FlyCamera {
+    constructor() {
+        this.pos = [0, 2, 10];
+        this.yaw = 0;
+        this.pitch = 0;
+        this.fov = 60;
+        this.speed = 14;
+    }
+
+    reset(def = {}, world) {
+        const p = def.pos || [0, 2, 10];
+        this.pos = [p[0], p[1] + (world ? world.heightAt(p[0], p[2]) : 0), p[2]];
+        this.yaw = (def.yaw || 0) * DEG;
+        this.pitch = (def.pitch || 0) * DEG;
+        this.fov = def.fov || 60;
+        this.speed = def.speed || 14;
+    }
+
+    forward() { const c = Math.cos(this.pitch); return [-Math.sin(this.yaw) * c, Math.sin(this.pitch), -Math.cos(this.yaw) * c]; }
+    right() { return [Math.cos(this.yaw), 0, -Math.sin(this.yaw)]; }
+    view() { return m4.lookAt(this.pos, v3.add(this.pos, this.forward()), [0, 1, 0]); }
+}
+
+class InputSystem {
+    constructor(game) {
+        this.game = game;
+        this.keys = new Set();
+        this.drag = null;
+    }
+
+    attach() {
+        const c = this.game.canvas, cam = () => this.game.camera;
+        c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); this.drag = [e.clientX, e.clientY]; });
+        c.addEventListener('pointermove', e => {
+            if (!this.drag) return;
+            const k = 0.0035 * (cam().fov / 60);
+            cam().yaw -= (e.clientX - this.drag[0]) * k;
+            cam().pitch = clamp(cam().pitch - (e.clientY - this.drag[1]) * k, -1.55, 1.55);
+            this.drag = [e.clientX, e.clientY];
+        });
+        const end = () => { this.drag = null; };
+        c.addEventListener('pointerup', end);
+        c.addEventListener('pointercancel', end);
+        c.addEventListener('wheel', e => { e.preventDefault(); cam().speed = clamp(cam().speed * (e.deltaY > 0 ? 0.8 : 1.25), 1, 600); this.game.toast(`Speed ${cam().speed.toFixed(1)} m/s`, 700); }, { passive: false });
+        window.addEventListener('keydown', e => {
+            if (e.target.closest && e.target.closest('input, select, textarea')) return;
+            if (!this.keys.has(e.code)) this.game.onKey(e.code);
+            this.keys.add(e.code);
+            if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+        });
+        window.addEventListener('keyup', e => this.keys.delete(e.code));
+        window.addEventListener('blur', () => this.keys.clear());
+    }
+
+    update(dt) {
+        const k = this.keys, cam = this.game.camera, f = cam.forward(), r = cam.right();
+        let mv = [0, 0, 0];
+        if (k.has('KeyW') || k.has('ArrowUp')) mv = v3.add(mv, f);
+        if (k.has('KeyS') || k.has('ArrowDown')) mv = v3.sub(mv, f);
+        if (k.has('KeyD') || k.has('ArrowRight')) mv = v3.add(mv, r);
+        if (k.has('KeyA') || k.has('ArrowLeft')) mv = v3.sub(mv, r);
+        if (k.has('KeyE') || k.has('Space')) mv[1] += 1;
+        if (k.has('KeyQ') || k.has('KeyC')) mv[1] -= 1;
+        if (v3.len(mv) === 0) return;
+        const sp = cam.speed * (k.has('ShiftLeft') || k.has('ShiftRight') ? 4 : 1);
+        cam.pos = v3.madd(cam.pos, v3.norm(mv), sp * dt);
+    }
+}
+
+// ================================================================ HUD + control panel
+class Hud {
+    constructor(game) {
+        this.game = game;
+        this.el = $('#hud');
+        this.help = $('#help');
+        this.toastEl = $('#toast');
+        this.next = 0;
+        this.frames = 0;
+        this.prev = 0;
+        this.fps = 0;
+        this.help.innerHTML = [
+            '<b>drag</b> look   <b>WASD</b> move   <b>Q/E</b> down/up   <b>Shift</b> fast   <b>wheel</b> speed',
+            '<b>1 2 3</b> LOD auto / mesh / imposter   <b>[ ]</b> LOD distance',
+            '<b>B</b> frame blend   <b>P</b> parallax   <b>O</b> depth offset   <b>T</b> LOD tint   <b>G</b> shadows',
+            '<b>K</b> next lighting   <b>V</b> atlas view   <b>N</b> next model   <b>R</b> reset camera   <b>L</b> load   <b>H</b> hide UI',
+            'drop a .glb / .gltf / .obj to bake it, or a scenario .json',
+        ].join('\n');
+    }
+
+    toast(msg, ms = 2200) {
+        const t = this.toastEl;
+        t.textContent = msg;
+        t.style.display = 'block';
+        clearTimeout(this.toastTimer);
+        if (ms > 0) this.toastTimer = setTimeout(() => { t.style.display = 'none'; }, ms);
+    }
+
+    update(now) {
+        this.frames++;
+        if (now < this.next) return;
+        this.fps = this.frames * 1000 / Math.max(1, now - this.prev);
+        this.frames = 0;
+        this.prev = now;
+        this.next = now + 250;
+        const g = this.game, st = g.settings, w = g.world, on = (b, s) => `<span class="${b ? 'on' : 'off'}">${s}</span>`;
+        const L = [`<span class="t">ENTITY IMPOSTER // ${(w ? w.sc.name || 'scenario' : 'loading').toUpperCase()}</span>`,
+            `fps ${this.fps.toFixed(0).padStart(3)}  cpu ${g.cpuMs.toFixed(2)} ms  pos ${g.camera.pos.map(x => x.toFixed(0)).join(' ')}`
+                + (g.renderer.gpuTimes ? `  gpu cull ${g.renderer.gpuTimes.cull.toFixed(2)} shadow ${g.renderer.gpuTimes.shadow ? g.renderer.gpuTimes.shadow.map(x => x.toFixed(2)).join('/') : '-'} main ${g.renderer.gpuTimes.main.toFixed(2)} ms` : ''),
+            `lod <span class="w">${st.lodMode.toUpperCase()}</span> ${st.lodDistance.toFixed(0)} m/5m radius  ${on(st.blend, 'blend')} ${on(st.parallax, 'parallax')} ${on(st.depthOffset, 'depth')} ${on(st.tint, 'tint')}`,
+            `light <span class="w">${g.lighting.name.toUpperCase()}</span> sun ${g.lighting.env.azimuth.toFixed(0)}/${g.lighting.env.elevation.toFixed(0)} deg  relights ${g.lighting.changes}  atlas bakes ${g.bakes} <span class="${g.bakesAfterRelight ? 'w' : 'on'}">(${g.bakesAfterRelight} after relighting)</span>`, ''];
+        if (w) {
+            L.push('<span class="muted">MODEL            INST   MESH    IMP  SHADOW   TRIS/INST  ATLAS</span>');
+            let drawn = 0, all = 0, mem = 0, shadowTris = 0;
+            const ground = { n: 0, m: 0, cast: 0, tris: 0, casts: false };
+            for (const a of w.list) {
+                const t = a.asset.mesh.triangles, at = a.asset.atlas, [m, i] = a.visible, [cm, ci] = a.casters;
+                drawn += m * t + i * 2;
+                shadowTris += cm * t + ci * 2;
+                all += (m + i) * t;
+                if (a.asset.kind === 'generated') {              // terrain chunks: one row
+                    ground.n++; ground.m += m; ground.cast += cm; ground.tris += t; ground.casts ||= a.asset.castShadows;
+                    continue;
+                }
+                if (at) mem += at.bytes;
+                const atlas = at ? `${at.grid}x${at.grid}@${at.res} ${at.full ? 'full' : 'hemi'} ${at.layers}L ${(at.bytes / 1048576).toFixed(0)}MB` : '<span class="off">none</span>';
+                const name = a.name.replace(/^terrain:.*/, 'terrain').slice(0, 15);
+                const cast = a.asset.castShadows && st.shadows ? String(cm + ci) : '-';
+                L.push(`${(a.name === st.focus ? '<span class="w">' + name.padEnd(15) + '</span>' : name.padEnd(15))} ${String(a.count).padStart(5)} ${String(m).padStart(6)} ${String(i).padStart(6)} ${cast.padStart(7)} ${fmtK(t).padStart(11)}  ${atlas}`);
+            }
+            if (ground.n) L.splice(L.length - w.list.length + ground.n, 0,
+                `${'terrain'.padEnd(15)} ${String(ground.n).padStart(5)} ${String(ground.m).padStart(6)} ${'0'.padStart(6)} ${(ground.casts && st.shadows ? String(ground.cast) : '-').padStart(7)} ${fmtK(ground.tris).padStart(11)}  <span class="off">${ground.n} chunks</span>`);
+            L.push('', `triangles drawn ${fmtK(drawn)}  <span class="muted">(all as mesh: ${fmtK(all)})</span>  shadows ${st.shadows ? fmtK(shadowTris) : 'off'}  atlases ${(mem / 1048576).toFixed(0)} MB`);
+            const f = g.focusInfo;
+            if (f) L.push(`focus ${f.name}: frames ${f.sel.cells.map((c, k) => `(${c[0]},${c[1]}) ${f.sel.w[k].toFixed(2)}`).join('  ')}`);
+            if (w.warnings.length) L.push(`<span class="d">${w.warnings.length} warning(s), see console</span>`);
+        }
+        this.el.innerHTML = L.join('\n');
+    }
+}
+
+class ControlPanel {
+    constructor(game) {
+        this.game = game;
+        const el = this.el = $('#controls');
+        const seg = (k, vals) => `<div class="seg" data-k="${k}">${vals.map(v => `<button data-v="${v}">${v}</button>`).join('')}</div>`;
+        const range = (k, label, min, max, step) => `<label class="row"><span>${label}</span><input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}"><b data-o="${k}"></b></label>`;
+        const chk = (k, label) => `<label class="row chk"><input type="checkbox" data-k="${k}">${label}</label>`;
+        const sel = (k, vals) => `<select data-b="${k}">${vals.map(v => `<option value="${v}">${v}</option>`).join('')}</select>`;
+        el.innerHTML = `
+            <div class="t">RUNTIME</div>
+            <div class="row"><span>LOD</span>${seg('lodMode', LOD_MODES)}</div>
+            ${range('lodDistance', 'LOD dist', 2, 300, 1)}
+            ${range('fade', 'fade band', 0, 0.8, 0.01)}
+            ${range('far', 'far', 100, 3000, 10)}
+            ${chk('blend', 'blend 3 frames')}
+            ${chk('parallax', 'depth parallax')}
+            ${chk('depthOffset', 'pixel depth offset')}
+            ${chk('tint', 'LOD tint + billboards')}
+            <div class="row"><span>atlas</span><select data-k="atlasView">${ATLAS_VIEWS.map(v => `<option value="${v}">${v}</option>`).join('')}</select></div>
+            <div class="t">SHADOWS</div>
+            ${chk('shadows', `${CASCADES} cascades, imposters cast + receive`)}
+            ${range('shadowDistance', 'distance', 40, 2500, 10)}
+            ${chk('cascadeTint', 'tint by cascade')}
+            <div class="t">LIGHTING <span class="muted">(runtime only, never rebakes)</span></div>
+            <div class="row"><span>preset</span><select data-l="preset"></select></div>
+            <label class="row"><span>sun az</span><input type="range" data-l="azimuth" min="0" max="360" step="1"><b data-lo="azimuth"></b></label>
+            <label class="row"><span>sun el</span><input type="range" data-l="elevation" min="2" max="90" step="1"><b data-lo="elevation"></b></label>
+            <label class="row"><span>lights</span><input type="range" data-l="emission" min="0" max="2" step="0.01"><b data-lo="emission"></b></label>
+            <div class="t">BAKE</div>
+            <div class="row"><span>model</span><select data-b="focus"></select></div>
+            <div class="row"><span>frames</span>${sel('grid', GRID_CHOICES)}${sel('res', RES_CHOICES)}${sel('mode', ['hemi', 'full'])}</div>
+            <div class="row"><button class="act" data-a="rebake">Rebake</button></div>
+            <div class="row muted" data-o="bakeInfo"></div>
+            <div class="t">DATA</div>
+            <div class="row"><button class="act" data-a="load">Load model / scenario…</button></div>
+            <div class="row"><button class="act" data-a="export">Export scenario JSON</button></div>`;
+        el.addEventListener('click', e => {
+            const b = e.target.closest('button');
+            if (!b) return;
+            const s = b.closest('.seg');
+            if (s) this.game.set(s.dataset.k, b.dataset.v);
+            else this.game.action(b.dataset.a);
+            b.blur();
+        });
+        const value = t => (t.type === 'checkbox' ? t.checked : t.type === 'range' ? +t.value : t.value);
+        el.addEventListener('input', e => {
+            const t = e.target;
+            if (t.dataset.k) this.game.set(t.dataset.k, value(t));
+            else if (t.dataset.l && t.type === 'range') this.game.relight(t.dataset.l, value(t));
+        });
+        el.addEventListener('change', e => {
+            const t = e.target;
+            if (t.dataset.b === 'focus') this.game.set('focus', t.value);
+            if (t.dataset.l === 'preset') this.game.relight('preset', t.value);
+            t.blur();
+        });
+    }
+
+    field(sel) { return this.el.querySelector(sel); }
+
+    sync() {
+        const st = this.game.settings, el = this.el;
+        el.querySelectorAll('.seg').forEach(s => s.querySelectorAll('button').forEach(b => b.classList.toggle('on', st[s.dataset.k] === b.dataset.v)));
+        el.querySelectorAll('input[data-k], select[data-k]').forEach(i => { if (i.type === 'checkbox') i.checked = !!st[i.dataset.k]; else i.value = st[i.dataset.k]; });
+        const L = this.game.lighting, ps = this.field('[data-l=preset]');
+        if (ps.dataset.names !== L.names.join('|')) { ps.innerHTML = L.names.map(n => `<option>${n}</option>`).join(''); ps.dataset.names = L.names.join('|'); }
+        ps.value = L.name;
+        el.querySelectorAll('input[data-l]').forEach(i => { i.value = L.target[i.dataset.l]; });
+        el.querySelectorAll('b[data-lo]').forEach(b => { const v = L.target[b.dataset.lo]; b.textContent = b.dataset.lo === 'emission' ? v.toFixed(2) : v.toFixed(0); });
+        el.querySelectorAll('b[data-o]').forEach(b => {
+            const v = st[b.dataset.o];
+            b.textContent = b.dataset.o === 'fade' ? v.toFixed(2) : v.toFixed(0);
+        });
+        const w = this.game.world, f = this.field('[data-b=focus]');
+        const names = w ? w.list.filter(a => a.asset.settings.enabled).map(a => a.name) : [];
+        if (f.dataset.names !== names.join('|')) { f.innerHTML = names.map(n => `<option>${n}</option>`).join(''); f.dataset.names = names.join('|'); }
+        f.value = st.focus;
+        const a = w && w.archetypes.get(st.focus), s = a && a.asset.settings, at = a && a.asset.atlas;
+        if (s && s.enabled && document.activeElement?.tagName !== 'SELECT') {
+            this.field('[data-b=grid]').value = s.grid;
+            this.field('[data-b=res]').value = s.res;
+            this.field('[data-b=mode]').value = s.mode;
+        }
+        this.field('[data-o=bakeInfo]').textContent = at
+            ? `${at.grid * at.res}px atlas, ${at.levels} mips, ${a.asset.mesh.triangles} tris, baked in ${at.bakeMs.toFixed(0)} ms`
+            : '';
+    }
+
+    bakeSettings() {
+        return { grid: +this.field('[data-b=grid]').value, res: +this.field('[data-b=res]').value, mode: this.field('[data-b=mode]').value };
+    }
+}
+
+// ================================================================ game
+class Game {
+    constructor(scenario, canvas) {
+        this.canvas = canvas;
+        this.scenario = scenario;
+        this.baseScenario = scenario;       // last scenario loaded from data (drops of models derive from it)
+        this.renderer = new Renderer();
+        this.lib = new ModelLibrary();
+        this.camera = new FlyCamera();
+        this.lighting = new Lighting();
+        this.bakes = 0;                     // atlas bakes since start
+        this.bakesAfterRelight = 0;         // ... since the lighting first changed (only manual rebakes / new models)
+        this.input = new InputSystem(this);
+        this.hud = new Hud(this);
+        this.world = null;
+        this.loading = false;
+        this.baking = false;
+        this.cpuMs = 0;
+        this.time = 0;
+        this.last = 0;
+        this.focusInfo = null;
+        this.settings = {
+            lodMode: 'auto', lodDistance: 40, fade: 0.25, far: 2400, blend: true, parallax: true, depthOffset: true, tint: false, atlasView: 'off', focus: '',
+            shadows: true, shadowDistance: 1200, shadowLambda: 0.85, cascadeTint: false,
+        };
+        this.frame = this.frame.bind(this);
+    }
+
+    async start() {
+        await this.renderer.init(this.canvas);
+        this.baker = new ImposterBaker(this.renderer);
+        this.panel = new ControlPanel(this);
+        this.input.attach();
+        this.attachFiles();
+        requestAnimationFrame(this.frame);
+        await this.loadScenario(this.scenario);
+    }
+
+    toast(msg, ms) { this.hud.toast(msg, ms); }
+
+    applyScenarioSettings(sc) {
+        const lod = sc.lod || {}, imp = sc.imposter || {}, st = this.settings;
+        Object.assign(st, {
+            lodMode: LOD_MODES.includes(lod.mode) ? lod.mode : 'auto', lodDistance: lod.distance ?? 40, fade: lod.fade ?? 0.25, far: lod.far ?? 2400,
+            blend: imp.blend ?? true, parallax: imp.parallax ?? true, depthOffset: imp.depthOffset ?? true,
+        });
+        const sh = sc.shadows || {};
+        Object.assign(st, { shadows: sh.enabled ?? true, shadowDistance: sh.distance ?? 1200, shadowLambda: sh.lambda ?? 0.85 });
+        this.renderer.ensureShadowMap(sh.resolution ?? 2048);
+    }
+
+    // build a world from scenario data and make it current; `fromData` = a scenario (not a model drop)
+    async loadScenario(sc, { resetCamera = true, fromData = true } = {}) {
+        if (this.loading) { this.toast('Still loading…'); return; }
+        this.loading = true;
+        try {
+            const world = new World(this, sc);
+            await world.build();
+            const old = this.world;
+            this.world = world;
+            this.scenario = sc;
+            if (fromData) { this.baseScenario = sc; this.applyScenarioSettings(sc); this.lighting.load(sc); }
+            old?.destroy();
+            this.lib.flushRetired();
+            if (resetCamera) this.camera.reset(sc.camera, world);
+            const imp = world.list.filter(a => a.asset.settings.enabled);
+            if (!imp.some(a => a.name === this.settings.focus)) this.settings.focus = (imp.find(a => a.asset.kind === 'import') || imp.find(a => a.name === 'oak') || imp[0] || {}).name || '';
+            this.panel.sync();
+            const inst = world.list.reduce((n, a) => n + a.count, 0);
+            if (world.warnings.length) { console.warn('Scenario warnings:\n' + world.warnings.join('\n')); this.toast(`${world.warnings.length} scenario warning(s), see console`, 4000); }
+            else this.toast(`Loaded "${sc.name || 'scenario'}": ${fmtK(inst)} instances of ${world.list.length} models`);
+        } catch (err) {
+            console.error(err);
+            this.toast('Scenario error: ' + err.message, 6000);
+        } finally {
+            this.loading = false;
+        }
+    }
+
+    // bake (or rebake) one model's atlas; the old atlas stays in use until the new one is ready
+    async bake(asset) {
+        const s = asset.settings;
+        this.toast(`Baking ${asset.name}: ${s.grid}x${s.grid} frames @ ${s.res}px (${s.mode})…`, 0);
+        await nextFrame();
+        await nextFrame();
+        const old = asset.atlas;
+        asset.atlas = await this.baker.bake(asset);
+        asset.version++;
+        this.bakes++;
+        if (this.lighting.changes) this.bakesAfterRelight++;
+        old?.destroy();
+        this.toast(`Baked ${asset.name} in ${asset.atlas.bakeMs.toFixed(0)} ms`, 1500);
+    }
+
+    async rebake() {
+        const a = this.world && this.world.archetypes.get(this.settings.focus);
+        if (!a || this.baking || this.loading) return;
+        this.baking = true;
+        try {
+            Object.assign(a.asset.settings, this.panel.bakeSettings());
+            await this.bake(a.asset);
+        } catch (err) {
+            console.error(err);
+            this.toast('Bake failed: ' + err.message, 5000);
+        } finally {
+            this.baking = false;
+            this.panel.sync();
+        }
+    }
+
+    relight(k, v) {
+        const L = this.lighting;
+        if (k === 'preset') { L.set(v); this.toast(`Lighting: ${v} (no rebake)`, 1200); }
+        else L.tweak(k, v);
+        this.panel.sync();
+    }
+
+    set(k, v) {
+        const st = this.settings;
+        st[k] = v;
+        if (k === 'lodMode') this.toast(`LOD: ${v}`, 900);
+        this.panel.sync();
+    }
+
+    action(a) {
+        if (a === 'rebake') this.rebake();
+        else if (a === 'load') $('#file').click();
+        else if (a === 'export') {
+            const url = URL.createObjectURL(new Blob([JSON.stringify(this.baseScenario, null, 2)], { type: 'application/json' }));
+            const link = Object.assign(document.createElement('a'), { href: url, download: 'scenario.json' });
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+    }
+
+    onKey(code) {
+        const st = this.settings, toggle = (k, label) => { this.set(k, !st[k]); this.toast(`${label} ${st[k] ? 'ON' : 'OFF'}`, 900); };
+        switch (code) {
+            case 'Digit1': this.set('lodMode', 'auto'); break;
+            case 'Digit2': this.set('lodMode', 'mesh'); break;
+            case 'Digit3': this.set('lodMode', 'imposter'); break;
+            case 'KeyB': toggle('blend', 'Frame blending'); break;
+            case 'KeyP': toggle('parallax', 'Depth parallax'); break;
+            case 'KeyO': toggle('depthOffset', 'Pixel depth offset'); break;
+            case 'KeyT': toggle('tint', 'LOD tint'); break;
+            case 'KeyG': toggle('shadows', 'Shadows'); break;
+            case 'KeyV': this.set('atlasView', ATLAS_VIEWS[(ATLAS_VIEWS.indexOf(st.atlasView) + 1) % ATLAS_VIEWS.length]); break;
+            case 'KeyN': {
+                const names = this.world ? this.world.list.filter(a => a.asset.settings.enabled).map(a => a.name) : [];
+                if (names.length) { this.set('focus', names[(names.indexOf(st.focus) + 1) % names.length]); this.toast(`Focus: ${st.focus}`, 900); }
+                break;
+            }
+            case 'BracketLeft': this.set('lodDistance', Math.max(2, Math.round(st.lodDistance / 1.25))); break;
+            case 'BracketRight': this.set('lodDistance', Math.min(300, Math.round(st.lodDistance * 1.25))); break;
+            case 'KeyR': this.camera.reset(this.scenario.camera, this.world); break;
+            case 'KeyL': $('#file').click(); break;
+            case 'KeyK': this.lighting.cycle(); this.toast(`Lighting: ${this.lighting.name} (no rebake)`, 1200); this.panel.sync(); break;
+            case 'KeyH': document.body.classList.toggle('hidden-ui'); break;
+        }
+    }
+
+    attachFiles() {
+        const input = $('#file'), zone = $('#dropzone');
+        input.addEventListener('change', () => { if (input.files.length) this.loadFiles([...input.files]); input.value = ''; });
+        let depth = 0;
+        document.addEventListener('dragenter', e => { e.preventDefault(); depth++; zone.classList.add('show'); });
+        document.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; zone.classList.remove('show'); } });
+        document.addEventListener('dragover', e => e.preventDefault());
+        document.addEventListener('drop', e => {
+            e.preventDefault();
+            depth = 0;
+            zone.classList.remove('show');
+            if (e.dataTransfer.files.length) this.loadFiles([...e.dataTransfer.files]);
+        });
+    }
+
+    // a scenario .json, or a model (+ its companion files) that replaces the scenario's `drop` targets
+    async loadFiles(list) {
+        const files = new Map(list.map(f => [f.name.toLowerCase(), f]));
+        const main = list.find(f => /\.(glb|gltf|obj)$/i.test(f.name)) || list.find(f => /\.json$/i.test(f.name));
+        if (!main) { this.toast('Drop a .glb, .gltf, .obj or a scenario .json'); return; }
+        if (this.loading || this.baking) { this.toast('Busy, try again in a moment'); return; }
+        try {
+            if (/\.json$/i.test(main.name)) { await this.loadScenario(JSON.parse(await main.text())); return; }
+            this.toast(`Loading ${main.name}…`, 0);
+            await nextFrame();
+            const mesh = /\.obj$/i.test(main.name) ? await ObjLoader.load(main, files) : await GltfLoader.load(main, files);
+            const base = this.baseScenario, drop = base.drop || {};
+            mesh.fit(drop.fit ?? 6);
+            const name = 'import:' + main.name.replace(/\.[^.]+$/, '');
+            this.lib.addImport(name, mesh, drop.imposter);
+            const sc = structuredClone(base);
+            for (const e of sc.entities || []) if ((drop.replace || []).includes(e.id)) e.model = name;
+            if (drop.field) sc.entities.push({ ...drop.field, model: name });
+            this.settings.focus = name;
+            await this.loadScenario(sc, { resetCamera: false, fromData: false });
+        } catch (err) {
+            console.error(err);
+            this.toast(`Could not load ${main.name}: ${err.message}`, 6000);
+        }
+    }
+
+    // the focused model's nearest instance: which atlas frames it uses right now (atlas overlay, HUD)
+    updateFocus() {
+        const w = this.world, a = w && w.archetypes.get(this.settings.focus), at = a && a.asset.atlas;
+        if (!at || !a.data) { this.focusInfo = null; return; }
+        let best = -1, bd = Infinity;
+        for (let i = 0; i < a.count; i++) {
+            const o = i * INSTANCE_FLOATS, dd = (a.data[o] - this.camera.pos[0]) ** 2 + (a.data[o + 1] - this.camera.pos[1]) ** 2 + (a.data[o + 2] - this.camera.pos[2]) ** 2;
+            if (a.data[o + 8] !== FORCE.mesh && dd < bd) { bd = dd; best = i; }
+        }
+        if (best < 0) { this.focusInfo = null; return; }
+        const inst = a.instance(best), c = v3.add(inst.pos, quat.rotate(inst.rot, v3.mul(at.center, inst.scale)));
+        const dir = quat.rotate(quat.conj(inst.rot), v3.norm(v3.sub(this.camera.pos, c)));
+        const panel = document.body.classList.contains('hidden-ui') ? null : this.panel.el.getBoundingClientRect();
+        this.focusInfo = {
+            name: a.name, atlas: at, sel: Oct.select(dir, at.grid, at.full, this.settings.blend), view: this.settings.atlasView,
+            rightInset: panel && panel.width && panel.width < window.innerWidth * 0.6 ? window.innerWidth - panel.left : 0,
+        };
+    }
+
+    frame(now) {
+        requestAnimationFrame(this.frame);
+        const dt = Math.min(0.1, this.last ? (now - this.last) / 1000 : 0);
+        this.last = now;
+        this.time += dt;
+        const t0 = performance.now(), w = this.world, cam = this.camera;
+        this.input.update(dt);
+        this.lighting.update(dt);
+        if (w) {
+            w.update(dt, this.time);
+            cam.pos[1] = Math.max(cam.pos[1], w.heightAt(cam.pos[0], cam.pos[2]) + 0.5);
+        }
+        this.updateFocus();
+        const f = this.focusInfo;
+        this.renderer.render(w, cam, this.settings, this.time, f && this.settings.atlasView !== 'off' ? f : null, this.lighting.env);
+        this.cpuMs = lerp(this.cpuMs, performance.now() - t0, 0.1);
+        this.hud.update(now);
+        if (now - (this.lastSync || 0) > 500) { this.lastSync = now; if (!this.baking) this.panel.sync(); }
+    }
+}
+
+// ================================================================ main
+function showFallback(e) {
+    console.error(e);
+    $('#error-message').textContent = String((e && e.stack) || e);
+    $('#fallback').classList.add('show');
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+    let scenario;
+    try {
+        scenario = JSON.parse($('#scenario').textContent);
+    } catch (err) {
+        showFallback(new Error('Embedded scenario is not valid JSON: ' + err.message));
+        return;
+    }
+    const game = new Game(scenario, $('#view'));
+    game.renderer.onError = showFallback;
+    window.imposterDemo = game;        // handy from the devtools console: world, lib, settings, camera
+    try {
+        await game.start();
+    } catch (err) {
+        showFallback(err);
+    }
+});
+</script>
+</body>
+</html>
